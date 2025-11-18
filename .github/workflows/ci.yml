@@ -211,8 +211,9 @@ jobs:
       - name: Get image digest
         id: digest
         run: |
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY_TAG }} 2>/dev/null || docker inspect --format='{{.Id}}' ${{ env.REGISTRY_TAG }})
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          # Get the image ID (format: sha256:xxxxx)
+          IMAGE_ID=$(docker inspect --format='{{.Id}}' ${{ env.REGISTRY_TAG }})
+          echo "digest=$IMAGE_ID" >> $GITHUB_OUTPUT
 
       - name: Install Syft
         run: |
