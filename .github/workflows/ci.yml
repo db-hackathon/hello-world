@@ -368,24 +368,30 @@ jobs:
 
           # Add container details section if available
           if [ -d "container-details" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
-            CONTAINER_TABLE=""
-            CONTAINER_TABLE+="## 📦 Published Containers\n\n"
-            CONTAINER_TABLE+="| Component | Registry URL | Digest |\n"
-            CONTAINER_TABLE+="|-----------|--------------|--------|\n"
+            # Create a temporary file with the container table
+            cat > /tmp/container_table.txt << 'CONTAINER_EOF'
+          ## 📦 Published Containers
+
+          | Component | Registry URL | Digest |
+          |-----------|--------------|--------|
+          CONTAINER_EOF
 
             for json_file in container-details/*.json; do
               if [ -f "$json_file" ]; then
                 COMPONENT=$(jq -r '.component' "$json_file")
                 REGISTRY_URL=$(jq -r '.registry_url' "$json_file")
                 DIGEST=$(jq -r '.digest' "$json_file" | cut -c1-19)  # Truncate digest for readability
-                CONTAINER_TABLE+="| \`$COMPONENT\` | \`$REGISTRY_URL\` | \`${DIGEST}...\` |\n"
+                echo "| \`$COMPONENT\` | \`$REGISTRY_URL\` | \`${DIGEST}...\` |" >> /tmp/container_table.txt
               fi
             done
 
-            CONTAINER_TABLE+="\n**Note**: Full container attestations (SBOM, provenance, vulnerability scans) are available in the workflow artifacts.\n"
+            echo "" >> /tmp/container_table.txt
+            echo "**Note**: Full container attestations (SBOM, provenance, vulnerability scans) are available in the workflow artifacts." >> /tmp/container_table.txt
+            echo "" >> /tmp/container_table.txt
 
-            # Replace placeholder with actual content
-            sed -i "s|CONTAINER_DETAILS_SECTION|$(echo -e "$CONTAINER_TABLE")|g" $GITHUB_STEP_SUMMARY
+            # Replace placeholder with content from file
+            sed -i '/CONTAINER_DETAILS_SECTION/r /tmp/container_table.txt' $GITHUB_STEP_SUMMARY
+            sed -i '/CONTAINER_DETAILS_SECTION/d' $GITHUB_STEP_SUMMARY
           else
             # Remove placeholder for PR builds
             sed -i "/CONTAINER_DETAILS_SECTION/d" $GITHUB_STEP_SUMMARY
