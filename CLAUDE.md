@@ -64,6 +64,7 @@ PostgreSQL :5432
 - **Database**: PostgreSQL 15 with Liquibase migrations
 - **Data**: Real 2024 ONS boys' baby names dataset (50 names)
 - **CI/CD**: Three-phase pipeline with Makefile orchestration
+- **Helm Chart**: Kubernetes deployment configuration (`helm/baby-names/`)
 
 **Container Security**:
 - Alpine Linux base images (zero CRITICAL vulnerabilities)
@@ -130,6 +131,33 @@ pytest tests/ -v --cov=. --cov-report=term
 # Database connections are mocked via tests/conftest.py
 ```
 
+**GKE Deployment**:
+```bash
+cd examples/baby-names/helm/baby-names
+
+# Deploy to GKE with IAM database authentication
+helm upgrade --install baby-names . \
+  --namespace baby-names-staging \
+  --create-namespace \
+  --values values-staging.yaml \
+  --set backend.image.tag=main-abc123 \
+  --set frontend.image.tag=main-abc123 \
+  --set migration.image.tag=main-abc123
+
+# Verify deployment
+kubectl get pods -n baby-names-staging
+kubectl get ingress -n baby-names-staging
+```
+
+**Helm Chart Features**:
+- **IAM Database Authentication**: No passwords required, uses Google Cloud IAM
+- **Cloud SQL Proxy**: Automatic sidecar container for secure connections
+- **Workload Identity**: GKE pods authenticate to GCP via service accounts
+- **Helm Hooks**: Database migrations run automatically before deployment
+- **Health Probes**: Liveness and readiness checks for both services
+- **Ingress**: GCE ingress controller for external access
+- **Environment-specific values**: Separate values files for staging/production
+
 ## CI/CD Pipelines
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
@@ -179,6 +207,38 @@ Three-phase pipeline with comprehensive attestations:
 - Safety 2.3.5 (dependency scanning)
 - Syft (SBOM generation)
 - Trivy (container scanning)
+
+### CD Pipeline (`.github/workflows/cd.yml`)
+
+**Deployment to Staging** (automated on push to main):
+1. **Authentication**: Direct Workload Identity Federation (WIF) to GCP
+   - Uses GitHub OIDC tokens (no service account keys)
+   - Workload Identity Provider: `projects/254825841253/locations/global/workloadIdentityPools/github-actions/providers/github-oidc`
+2. **GKE Access**: Install gke-gcloud-auth-plugin and get cluster credentials
+3. **Helm Deployment**: Deploy using `values-staging.yaml` with commit SHA as image tag
+4. **Health Verification**: Check pod, service, and ingress status
+5. **Smoke Tests**:
+   - Frontend health endpoint
+   - Backend health endpoint (via frontend proxy)
+   - Critical user path (name lookup)
+
+**Security Features**:
+- **Direct WIF**: Short-lived GitHub OIDC tokens, no long-lived credentials
+- **IAM Database Auth**: CloudSQL authentication via service account identity
+- **Workload Identity**: `hello-world-staging@extended-ascent-477308-m8.iam` bound to Kubernetes service account
+- **Cloud SQL Proxy**: Automatic IAM token refresh and secure connection
+
+**Target Infrastructure** (manually provisioned):
+- **GKE Cluster**: `hellow-world-manual` in `europe-west1`
+- **CloudSQL Instance**: `hello-world-manual` in `europe-west1`
+- **Namespace**: `baby-names-staging`
+- **Ingress**: GCE ingress at `gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog`
+
+**Production Deployment** (future):
+- Manual approval via GitHub Environments
+- Blue-green or canary deployment
+- Gradual traffic shifting
+- Automatic rollback on failure
 
 ## Environment Setup
 

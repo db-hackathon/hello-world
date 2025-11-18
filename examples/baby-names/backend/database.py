@@ -21,15 +21,24 @@ class Database:
     def _initialize_pool(self):
         """Create PostgreSQL connection pool."""
         try:
-            self.connection_pool = pool.SimpleConnectionPool(
-                minconn=1,
-                maxconn=10,
-                host=os.getenv("DB_HOST", "localhost"),
-                port=os.getenv("DB_PORT", "5432"),
-                database=os.getenv("DB_NAME", "baby_names"),
-                user=os.getenv("DB_USER", "app_user"),
-                password=os.getenv("DB_PASSWORD", "app_password"),
-            )
+            # Check if IAM authentication is enabled
+            use_iam_auth = os.getenv("DB_IAM_AUTH", "false").lower() == "true"
+
+            # Base connection parameters
+            conn_params = {
+                "minconn": 1,
+                "maxconn": 10,
+                "host": os.getenv("DB_HOST", "localhost"),
+                "port": os.getenv("DB_PORT", "5432"),
+                "database": os.getenv("DB_NAME", "baby_names"),
+                "user": os.getenv("DB_USER", "app_user"),
+            }
+
+            # Add password only for non-IAM authentication
+            if not use_iam_auth:
+                conn_params["password"] = os.getenv("DB_PASSWORD", "app_password")
+
+            self.connection_pool = pool.SimpleConnectionPool(**conn_params)
         except (Exception, psycopg2.DatabaseError) as error:
             print(f"Error creating connection pool: {error}")
             raise

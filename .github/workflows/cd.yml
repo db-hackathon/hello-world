@@ -26,13 +26,37 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
     environment:
       name: staging
-      url: https://baby-names-staging.example.com
+      url: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
     permissions:
       contents: read
       packages: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Direct WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: extended-ascent-477308-m8
+          workload_identity_provider: projects/254825841253/locations/global/workloadIdentityPools/github-actions/providers/github-oidc
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+
+      - name: Get GKE credentials
+        run: |
+          gcloud container clusters get-credentials hellow-world-manual \
+            --region=europe-west1 \
+            --project=extended-ascent-477308-m8
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.0'
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -41,45 +65,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull images
+      - name: Deploy with Helm
+        working-directory: examples/baby-names/helm/baby-names
         run: |
-          echo "Pulling backend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
-          echo "Pulling frontend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+          helm upgrade --install baby-names . \
+            --namespace baby-names-staging \
+            --create-namespace \
+            --values values-staging.yaml \
+            --set backend.image.tag=main-${{ github.sha }} \
+            --set frontend.image.tag=main-${{ github.sha }} \
+            --set migration.image.tag=main-${{ github.sha }} \
+            --wait \
+            --timeout 10m
 
-      - name: Deploy to Kubernetes (Stubbed)
+      - name: Verify deployment
         run: |
-          echo "=========================================="
-          echo "DEPLOYMENT STEP - CURRENTLY STUBBED"
-          echo "=========================================="
-          echo ""
-          echo "This step would:"
-          echo "  1. Configure kubectl with staging cluster credentials"
-          echo "  2. Apply Kubernetes manifests from k8s/ directory"
-          echo "  3. Update image tags to: main-${{ github.sha }}"
-          echo "  4. Wait for rollout to complete"
-          echo "  5. Verify deployment health"
-          echo ""
-          echo "Target cluster: staging-k8s-cluster"
-          echo "Namespace: baby-names-staging"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
-          echo ""
-          echo "Deployment would use:"
-          echo "  - Terraform-managed GKE cluster (public cloud variant)"
-          echo "  - PostgreSQL database from IDP product"
-          echo "  - Ingress with TLS termination"
-          echo "  - Horizontal Pod Autoscaling"
-          echo "  - Resource limits and requests"
-          echo ""
-          echo "=========================================="
+          kubectl get pods -n baby-names-staging
+          kubectl get services -n baby-names-staging
+          kubectl get ingress -n baby-names-staging
 
       - name: Record deployment
         run: |
           echo "Deployment to staging completed at $(date)"
           echo "Git SHA: ${{ github.sha }}"
           echo "Actor: ${{ github.actor }}"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
 
   smoke-tests-staging:
     name: Smoke Tests (Staging)
@@ -98,30 +109,47 @@ jobs:
         run: |
           pip install pytest requests
 
-      - name: Run smoke tests (Stubbed)
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services to be fully ready..."
+          sleep 60
+
+      - name: Test frontend health endpoint
         env:
-          BACKEND_URL: https://api-baby-names-staging.example.com
-          FRONTEND_URL: https://baby-names-staging.example.com
+          FRONTEND_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+        run: |
+          echo "Testing frontend health at $FRONTEND_URL/health"
+          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "$FRONTEND_URL/health"
+
+      - name: Test backend health endpoint (via frontend proxy)
+        env:
+          FRONTEND_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+        run: |
+          echo "Testing backend health via $FRONTEND_URL/api/health"
+          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "$FRONTEND_URL/api/health"
+
+      - name: Test critical user path
+        env:
+          FRONTEND_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+        run: |
+          echo "Testing name lookup for 'Noah'"
+          RESPONSE=$(curl --fail "$FRONTEND_URL/api/names/Noah")
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | grep -q "rank"
+
+      - name: Smoke tests summary
         run: |
           echo "=========================================="
-          echo "SMOKE TESTS - CURRENTLY STUBBED"
+          echo "SMOKE TESTS COMPLETED SUCCESSFULLY"
           echo "=========================================="
           echo ""
-          echo "This step would run:"
-          echo "  pytest tests/smoke/ -v"
+          echo "All critical paths verified:"
+          echo "  ✓ Frontend health endpoint responding"
+          echo "  ✓ Backend health endpoint responding"
+          echo "  ✓ Database connectivity verified"
+          echo "  ✓ Name lookup functionality working"
           echo ""
-          echo "Against endpoints:"
-          echo "  Backend: $BACKEND_URL"
-          echo "  Frontend: $FRONTEND_URL"
-          echo ""
-          echo "Tests would verify:"
-          echo "  ✓ Services are responding"
-          echo "  ✓ Health endpoints return 200"
-          echo "  ✓ Database connectivity"
-          echo "  ✓ Critical user path (search for name)"
-          echo "  ✓ Top names are present in database"
-          echo ""
-          echo "All smoke tests passed (simulated)"
+          echo "Staging deployment is healthy and ready!"
           echo "=========================================="
 
   deploy-production:

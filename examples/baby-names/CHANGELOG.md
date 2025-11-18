@@ -21,6 +21,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tests full application stack with docker-compose
   - Includes service health checks before testing
   - Comprehensive logging on failure
+- Helm chart for Kubernetes deployment (`helm/baby-names/`)
+  - Separate templates for namespace, serviceaccount, deployments, services, ingress
+  - Cloud SQL Proxy sidecar for IAM database authentication
+  - Helm hooks for pre-install/pre-upgrade database migrations
+  - Environment-specific values files (values.yaml, values-staging.yaml)
+  - Support for both IAM and password-based authentication
+- GKE deployment via CD workflow
+  - Direct Workload Identity Federation (WIF) for GitHub Actions authentication
+  - Helm-based deployment to GKE cluster
+  - Automated database migrations via Helm hooks
+  - Health verification after deployment
+- Smoke tests for deployed staging environment
+  - Frontend and backend health endpoint verification
+  - Database connectivity validation
+  - Critical user path testing (name lookup)
+- IAM database authentication support
+  - Backend modified to support passwordless IAM authentication
+  - Cloud SQL Proxy sidecar handles IAM token generation
+  - Maintains backward compatibility with password-based auth
+  - Liquibase migrations support IAM authentication
 - Makefile-based build system for local and CI execution
   - Root Makefile for orchestrating multi-component builds
   - Component-level Makefiles (backend, frontend, database)
@@ -60,13 +80,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI workflow now delegates to Makefiles
   - Consistent behavior between local and CI environments
   - Single source of truth for build/test/scan commands
-- CD workflow simplified to focus on deployment only
-  - Integration tests moved to CI pipeline
-  - Removed dependency on integration-tests job
+- CD workflow now performs actual GKE deployment
+  - Uses Direct Workload Identity Federation instead of service account keys
+  - Deploys to manually provisioned GKE cluster and CloudSQL instance
+  - Integration tests moved to CI pipeline for earlier feedback
+  - Smoke tests verify deployed application health
   - Clearer separation: CI validates, CD deploys
 - Database connection handling in backend
   - Fixed psycopg2.pool import for proper connection pooling
   - Uses `from psycopg2 import pool` instead of `psycopg2.pool`
+  - Added IAM authentication support via `DB_IAM_AUTH` environment variable
+  - Conditionally omits password when IAM auth is enabled
 - Frontend error handling
   - Test suite now uses `requests.exceptions.ConnectionError` instead of generic Exception
 
@@ -81,3 +105,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependency vulnerability scanning integrated into CI pipeline
 - All security artifacts attested via GitHub Actions
 - SBOM generated for all containers (backend, frontend, db-migration)
+- IAM-based authentication for database access (no passwords in production)
+  - Uses Google Cloud IAM for CloudSQL authentication
+  - Cloud SQL Proxy handles automatic token refresh
+  - GKE Workload Identity links Kubernetes service accounts to GCP service accounts
+- Direct Workload Identity Federation for GitHub Actions
+  - No long-lived service account keys required
+  - GitHub OIDC tokens provide short-lived access to GCP
+  - Principle of least privilege via precise IAM bindings

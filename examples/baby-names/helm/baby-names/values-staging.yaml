@@ -1,0 +1,55 @@
+# Staging environment overrides for baby-names
+# These values override the defaults in values.yaml
+
+namespace:
+  name: baby-names-staging
+
+serviceAccount:
+  name: baby-names-staging
+  annotations:
+    iam.gke.io/gcp-service-account: hello-world-staging@extended-ascent-477308-m8.iam.gserviceaccount.com
+
+backend:
+  image:
+    tag: "main-latest" # Will be overridden by CD workflow with specific SHA
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: baby_names
+    DB_USER: hello-world-staging@extended-ascent-477308-m8.iam
+    DB_IAM_AUTH: "true"
+
+frontend:
+  image:
+    tag: "main-latest" # Will be overridden by CD workflow with specific SHA
+  env:
+    BACKEND_URL: http://baby-names-backend:5000
+
+migration:
+  image:
+    tag: "main-latest" # Will be overridden by CD workflow with specific SHA
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: baby_names
+    DB_USER: hello-world-staging@extended-ascent-477308-m8.iam
+    DB_IAM_AUTH: "true"
+
+database:
+  instanceConnectionName: "extended-ascent-477308-m8:europe-west1:hello-world-manual"
+  iamAuth: true
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+  hosts:
+    - host: gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: frontend
+        - path: /api
+          pathType: Prefix
+          backend: backend

@@ -89,6 +89,7 @@ A production-ready three-tier web application that queries UK Office of National
 - `/examples/baby-names/frontend/` - Flask web UI with HTML templates
 - `/examples/baby-names/backend/` - Flask REST API with `/api/v1/names` endpoints
 - `/examples/baby-names/database/` - Liquibase changelogs and data migrations
+- `/examples/baby-names/helm/baby-names/` - Helm chart for Kubernetes deployment
 - Configuration files: `ruff.toml`, `.safety-policy.yml`
 - Build system: Makefiles (root + component-level)
 
@@ -121,6 +122,35 @@ make ci-local
 # Stop services
 docker-compose down -v
 ```
+
+**GKE Deployment:**
+
+The application can be deployed to Google Kubernetes Engine (GKE) using the included Helm chart:
+
+```bash
+cd examples/baby-names/helm/baby-names
+
+# Deploy to staging
+helm upgrade --install baby-names . \
+  --namespace baby-names-staging \
+  --create-namespace \
+  --values values-staging.yaml \
+  --set backend.image.tag=main-abc123 \
+  --set frontend.image.tag=main-abc123 \
+  --set migration.image.tag=main-abc123
+
+# Check deployment status
+kubectl get pods -n baby-names-staging
+kubectl get ingress -n baby-names-staging
+```
+
+**Deployment Features:**
+- **IAM Database Authentication**: No passwords required, uses Google Cloud IAM
+- **Cloud SQL Proxy**: Automatic sidecar for secure database connections
+- **Workload Identity**: GKE pods authenticate to GCP services via service accounts
+- **Automated Migrations**: Helm hooks run Liquibase migrations before deployment
+- **Health Checks**: Liveness and readiness probes for both frontend and backend
+- **Ingress**: GCE ingress controller for external access
 
 ### CI/CD Pipeline Architecture
 
@@ -174,6 +204,29 @@ For each component (backend, frontend, db-migration):
 - Syft (SBOM generation)
 - Trivy (container scanning)
 - Pytest (testing with coverage)
+
+### CD Pipeline
+
+Location: `/.github/workflows/cd.yml`
+
+**Deployment to Staging:**
+1. **Authentication**: Direct Workload Identity Federation (WIF) to GCP
+2. **GKE Access**: Configure kubectl with cluster credentials
+3. **Helm Deployment**: Deploy using Helm chart with staging values
+4. **Health Verification**: Check pod and service status
+5. **Smoke Tests**: Verify frontend, backend, and database connectivity
+
+**Security Features:**
+- **Direct WIF**: No service account keys, uses GitHub OIDC tokens
+- **IAM Database Auth**: CloudSQL authentication via service account identity
+- **Workload Identity**: GKE service accounts bound to GCP service accounts
+- **Cloud SQL Proxy**: Automatic IAM token refresh for database connections
+
+**Future: Production Deployment:**
+- Manual approval via GitHub Environments
+- Blue-green or canary deployment strategy
+- Gradual traffic shifting
+- Automatic rollback on failure
 
 ### Deployment Targets
 

@@ -1,0 +1,133 @@
+# Default values for baby-names.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Namespace configuration
+namespace:
+  create: true
+  name: baby-names
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: baby-names-app
+  annotations: {}
+    # iam.gke.io/gcp-service-account: SERVICE_ACCOUNT@PROJECT_ID.iam.gserviceaccount.com
+
+# Backend configuration
+backend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/db-hackathon/baby-names-backend
+    pullPolicy: IfNotPresent
+    tag: "" # Defaults to chart appVersion if not set
+  service:
+    type: ClusterIP
+    port: 5000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: baby_names
+    DB_USER: "" # Set in environment-specific values
+    DB_IAM_AUTH: "false"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  podAnnotations: {}
+
+# Frontend configuration
+frontend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/db-hackathon/baby-names-frontend
+    pullPolicy: IfNotPresent
+    tag: "" # Defaults to chart appVersion if not set
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  env:
+    BACKEND_URL: http://backend:5000
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  podAnnotations: {}
+
+# Database migration job
+migration:
+  image:
+    repository: ghcr.io/db-hackathon/baby-names-db-migration
+    pullPolicy: IfNotPresent
+    tag: "" # Defaults to chart appVersion if not set
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: baby_names
+    DB_USER: "" # Set in environment-specific values
+    DB_PASSWORD: "" # Set in environment-specific values (not used with IAM auth)
+    DB_IAM_AUTH: "false"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  backoffLimit: 3
+
+# Database configuration
+database:
+  instanceConnectionName: "" # Format: project:region:instance
+  iamAuth: false
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: ""
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: frontend
+        - path: /api
+          pathType: Prefix
+          backend: backend
+  tls: []
+    # - secretName: baby-names-tls
+    #   hosts:
+    #     - baby-names.example.com
