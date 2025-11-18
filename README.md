@@ -126,7 +126,7 @@ docker-compose down -v
 
 Location: `/.github/workflows/ci.yml`
 
-**Two-Phase Pipeline with Fail-Fast Quality Gates:**
+**Three-Phase Pipeline with Fail-Fast Quality Gates:**
 
 **Phase A - Sequential Quality Gates:**
 1. **Format & Lint** (backend, frontend)
@@ -153,6 +153,13 @@ For each component (backend, frontend, db-migration):
    - Scan results attestation (subject: trivy-results.json)
    - Build provenance attestation (subject: container image)
 5. **Push**: Registry push (non-PR builds only)
+6. **Job Summary**: Outputs container details (registry URL, digest) directly to GitHub Actions job summary
+
+**Phase C - Integration Tests:**
+1. **Service Deployment**: Start full stack with docker-compose
+2. **Health Checks**: Verify backend and frontend endpoints
+3. **Integration Testing**: Run pytest integration test suite
+4. **Cleanup**: Tear down docker-compose services
 
 **Key Features:**
 - All CI commands execute via Makefiles (single source of truth)

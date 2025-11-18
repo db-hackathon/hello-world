@@ -63,7 +63,7 @@ PostgreSQL :5432
 - **Backend**: REST API with `/api/v1/names` endpoints (Alpine-based, Python 3.11)
 - **Database**: PostgreSQL 15 with Liquibase migrations
 - **Data**: Real 2024 ONS boys' baby names dataset (50 names)
-- **CI/CD**: Two-phase pipeline with Makefile orchestration
+- **CI/CD**: Three-phase pipeline with Makefile orchestration
 
 **Container Security**:
 - Alpine Linux base images (zero CRITICAL vulnerabilities)
@@ -134,7 +134,7 @@ pytest tests/ -v --cov=. --cov-report=term
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
 
-Two-phase pipeline with comprehensive attestations:
+Three-phase pipeline with comprehensive attestations:
 
 **Phase A - Sequential Quality Gates (Fail-Fast)**:
 1. **Format & Lint** (backend, frontend)
@@ -159,6 +159,13 @@ Two-phase pipeline with comprehensive attestations:
    - Scan results attestation
    - Build provenance attestation
 5. **Push**: Registry push (non-PR only)
+6. **Job Summary**: Outputs container details (registry URL, digest) to GitHub Actions job summary
+
+**Phase C - Integration Tests**:
+1. **Service Deployment**: Start full stack with docker-compose
+2. **Health Checks**: Verify backend and frontend endpoints
+3. **Integration Testing**: Run pytest integration test suite
+4. **Cleanup**: Tear down docker-compose services
 
 **Key Features**:
 - All commands delegated to Makefiles for consistency

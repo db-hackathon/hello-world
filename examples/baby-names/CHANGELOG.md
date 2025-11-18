@@ -8,9 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Comprehensive two-phase CI pipeline with fail-fast quality gates
+- Comprehensive three-phase CI pipeline with fail-fast quality gates
   - Phase A: Sequential quality checks (format, lint, security, tests)
   - Phase B: Parallel container build, scan, and attestation
+  - Phase C: Integration tests with docker-compose deployment
+- Container details output to GitHub Actions job summary
+  - Each build job outputs registry URL and digest
+  - Includes both short and full digest for easy verification
+  - Links to attestation artifacts
+- Integration tests integrated into CI pipeline
+  - Moved from CD to CI workflow for earlier feedback
+  - Tests full application stack with docker-compose
+  - Includes service health checks before testing
+  - Comprehensive logging on failure
 - Makefile-based build system for local and CI execution
   - Root Makefile for orchestrating multi-component builds
   - Component-level Makefiles (backend, frontend, database)
@@ -50,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI workflow now delegates to Makefiles
   - Consistent behavior between local and CI environments
   - Single source of truth for build/test/scan commands
+- CD workflow simplified to focus on deployment only
+  - Integration tests moved to CI pipeline
+  - Removed dependency on integration-tests job
+  - Clearer separation: CI validates, CD deploys
 - Database connection handling in backend
   - Fixed psycopg2.pool import for proper connection pooling
   - Uses `from psycopg2 import pool` instead of `psycopg2.pool`
