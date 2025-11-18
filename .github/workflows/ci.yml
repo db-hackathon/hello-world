@@ -306,10 +306,10 @@ jobs:
         run: |
           pip install pytest requests
 
-      - name: Start services with docker-compose
+      - name: Start services with docker compose
         working-directory: examples/baby-names
         run: |
-          docker-compose up -d
+          docker compose up -d
           echo "Waiting for services to be ready..."
           sleep 30
 
@@ -331,16 +331,16 @@ jobs:
         working-directory: examples/baby-names
         run: |
           echo "=== Backend logs ==="
-          docker-compose logs backend
+          docker compose logs backend
           echo "=== Frontend logs ==="
-          docker-compose logs frontend
+          docker compose logs frontend
           echo "=== Database logs ==="
-          docker-compose logs postgres
+          docker compose logs postgres
 
       - name: Cleanup
         if: always()
         working-directory: examples/baby-names
-        run: docker-compose down -v
+        run: docker compose down -v
 
   ##
   ## Summary Job
