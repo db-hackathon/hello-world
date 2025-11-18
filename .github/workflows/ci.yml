@@ -267,25 +267,23 @@ jobs:
         if: github.event_name != 'pull_request'
         run: docker push ${{ env.REGISTRY_TAG }}
 
-      - name: Save container details
+      - name: Add container details to job summary
         if: github.event_name != 'pull_request'
         run: |
-          mkdir -p container-details
-          cat > container-details/${{ matrix.component }}.json <<EOF
-          {
-            "component": "${{ matrix.component }}",
-            "registry_url": "${{ env.REGISTRY_TAG }}",
-            "digest": "${{ steps.digest.outputs.digest }}",
-            "pushed": true
-          }
-          EOF
+          DIGEST_SHORT=$(echo "${{ steps.digest.outputs.digest }}" | cut -c1-19)
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ### 📦 Published Container: \`${{ matrix.component }}\`
 
-      - name: Upload container details
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: container-details-${{ matrix.component }}
-          path: container-details/${{ matrix.component }}.json
+          | Property | Value |
+          |----------|-------|
+          | **Registry URL** | \`${{ env.REGISTRY_TAG }}\` |
+          | **Digest** | \`${DIGEST_SHORT}...\` |
+          | **Full Digest** | \`${{ steps.digest.outputs.digest }}\` |
+
+          **Attestations**: SBOM, Build Provenance, and Trivy scan results are available in workflow artifacts.
+
+          ---
+          EOF
 
   ##
   ## Summary Job
@@ -297,14 +295,6 @@ jobs:
     needs: [format-and-lint, dependency-security, unit-tests, build-scan-attest]
     if: always()
     steps:
-      - name: Download container details
-        if: github.event_name != 'pull_request'
-        uses: actions/download-artifact@v4
-        with:
-          pattern: container-details-*
-          path: container-details
-          merge-multiple: true
-
       - name: Generate Pipeline Summary
         run: |
           # Determine status icons
@@ -347,8 +337,6 @@ jobs:
           |-----|--------|--------|
           | Build/Scan/Attest | $BUILD_ICON | `${{ needs.build-scan-attest.result }}` |
 
-          CONTAINER_DETAILS_SECTION
-
           ---
 
           ## 📊 Pipeline Details
@@ -365,37 +353,6 @@ jobs:
           - [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           - [View Commit](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
           EOF
-
-          # Add container details section if available
-          if [ -d "container-details" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
-            # Create a temporary file with the container table
-            cat > /tmp/container_table.txt << 'CONTAINER_EOF'
-          ## 📦 Published Containers
-
-          | Component | Registry URL | Digest |
-          |-----------|--------------|--------|
-          CONTAINER_EOF
-
-            for json_file in container-details/*.json; do
-              if [ -f "$json_file" ]; then
-                COMPONENT=$(jq -r '.component' "$json_file")
-                REGISTRY_URL=$(jq -r '.registry_url' "$json_file")
-                DIGEST=$(jq -r '.digest' "$json_file" | cut -c1-19)  # Truncate digest for readability
-                echo "| \`$COMPONENT\` | \`$REGISTRY_URL\` | \`${DIGEST}...\` |" >> /tmp/container_table.txt
-              fi
-            done
-
-            echo "" >> /tmp/container_table.txt
-            echo "**Note**: Full container attestations (SBOM, provenance, vulnerability scans) are available in the workflow artifacts." >> /tmp/container_table.txt
-            echo "" >> /tmp/container_table.txt
-
-            # Replace placeholder with content from file
-            sed -i '/CONTAINER_DETAILS_SECTION/r /tmp/container_table.txt' $GITHUB_STEP_SUMMARY
-            sed -i '/CONTAINER_DETAILS_SECTION/d' $GITHUB_STEP_SUMMARY
-          else
-            # Remove placeholder for PR builds
-            sed -i "/CONTAINER_DETAILS_SECTION/d" $GITHUB_STEP_SUMMARY
-          fi
 
           # Replace variables in the summary
           sed -i "s|\$OVERALL_STATUS|$OVERALL_STATUS|g" $GITHUB_STEP_SUMMARY
