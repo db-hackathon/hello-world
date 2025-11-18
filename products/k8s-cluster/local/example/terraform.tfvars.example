@@ -1,0 +1,17 @@
+# Example configuration for kind cluster deployment
+# Copy this file to terraform.tfvars and customize as needed
+
+cluster_name       = "my-kind-cluster"
+kubernetes_version = "v1.28.0"
+
+# Cluster topology
+worker_nodes = 0  # Set to 0 for single-node cluster, or 1-2 for multi-node
+
+# Port mappings
+api_server_port = 6443
+http_port       = 8080
+https_port      = 8443
+
+# Workload namespace and service account
+namespace       = "my-app"
+service_account = "my-app-sa"

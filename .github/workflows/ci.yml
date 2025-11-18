@@ -1,0 +1,354 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_PREFIX: ${{ github.repository }}/baby-names
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write        # Required for attestations
+  attestations: write    # Required for attestations
+  security-events: write # For Trivy SARIF uploads
+
+jobs:
+  ##
+  ## PHASE A - Sequential, Fail-Fast Quality Gates
+  ##
+
+  format-and-lint:
+    name: Format & Lint Check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check code formatting
+        working-directory: examples/baby-names/${{ matrix.component }}
+        run: make format-check
+
+      - name: Run linting
+        working-directory: examples/baby-names/${{ matrix.component }}
+        run: make lint
+
+      - name: Generate lint report for attestation
+        working-directory: examples/baby-names/${{ matrix.component }}
+        if: always()
+        run: |
+          pip install -q ruff==0.8.4
+          ruff check . --output-format=json > lint-results.json || true
+
+      - name: Upload lint results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-results-${{ matrix.component }}
+          path: examples/baby-names/${{ matrix.component }}/lint-results.json
+
+      - name: Attest lint results
+        uses: actions/attest-build-provenance@v3
+        if: always()
+        with:
+          subject-path: examples/baby-names/${{ matrix.component }}/lint-results.json
+
+  dependency-security:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    needs: format-and-lint
+    strategy:
+      fail-fast: true
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run safety scan
+        working-directory: examples/baby-names/${{ matrix.component }}
+        run: make security-check
+
+      - name: Generate safety report for attestation
+        working-directory: examples/baby-names/${{ matrix.component }}
+        if: always()
+        run: |
+          pip install -q -r requirements.txt
+          safety scan \
+            --policy-file ../.safety-policy.yml \
+            --output json \
+            --save-as safety-report.json || true
+
+      - name: Upload safety report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-report-${{ matrix.component }}
+          path: examples/baby-names/${{ matrix.component }}/safety-report.json
+
+      - name: Attest safety report
+        uses: actions/attest-build-provenance@v3
+        if: always()
+        with:
+          subject-path: examples/baby-names/${{ matrix.component }}/safety-report.json
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: dependency-security
+    strategy:
+      fail-fast: true
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run unit tests
+        working-directory: examples/baby-names/${{ matrix.component }}
+        run: make test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.component }}
+          path: examples/baby-names/${{ matrix.component }}/coverage.xml
+
+      - name: Attest coverage report
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: examples/baby-names/${{ matrix.component }}/coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          files: examples/baby-names/${{ matrix.component }}/coverage.xml
+          flags: ${{ matrix.component }}
+          name: ${{ matrix.component }}-coverage
+          fail_ci_if_error: false
+
+  ##
+  ## PHASE B - Parallel Build, Scan, Attest, Push
+  ##
+
+  build-scan-attest:
+    name: Build, Scan & Attest (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    strategy:
+      fail-fast: true
+      matrix:
+        component: [backend, frontend, db-migration]
+    outputs:
+      backend-digest: ${{ steps.build.outputs.digest }}
+      frontend-digest: ${{ steps.build.outputs.digest }}
+      db-migration-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set component directory
+        id: set-dir
+        run: |
+          if [ "${{ matrix.component }}" == "db-migration" ]; then
+            echo "dir=database" >> $GITHUB_OUTPUT
+          else
+            echo "dir=${{ matrix.component }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+
+      - name: Build container image
+        id: build
+        working-directory: examples/baby-names/${{ steps.set-dir.outputs.dir }}
+        run: make build
+
+      - name: Tag image for registry
+        run: |
+          LOCAL_IMAGE="ghcr.io/db-hackathon/baby-names-${{ matrix.component }}:local"
+          REGISTRY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          docker tag $LOCAL_IMAGE $REGISTRY_TAG
+          echo "REGISTRY_TAG=$REGISTRY_TAG" >> $GITHUB_ENV
+
+      - name: Get image digest
+        id: digest
+        run: |
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY_TAG }} 2>/dev/null || docker inspect --format='{{.Id}}' ${{ env.REGISTRY_TAG }})
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Generate SBOM
+        working-directory: examples/baby-names/${{ steps.set-dir.outputs.dir }}
+        run: make generate-sbom
+
+      - name: Install Trivy
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Scan container image
+        working-directory: examples/baby-names/${{ steps.set-dir.outputs.dir }}
+        run: make scan
+
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results-${{ matrix.component }}
+          path: examples/baby-names/${{ steps.set-dir.outputs.dir }}/${{ matrix.component }}-trivy.json
+
+      - name: Attest Trivy scan results
+        uses: actions/attest-build-provenance@v3
+        if: always()
+        with:
+          subject-path: examples/baby-names/${{ steps.set-dir.outputs.dir }}/${{ matrix.component }}-trivy.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.component }}
+          path: examples/baby-names/${{ steps.set-dir.outputs.dir }}/${{ matrix.component }}-sbom.spdx.json
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v3
+        if: github.event_name != 'pull_request'
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.component }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          sbom-path: examples/baby-names/${{ steps.set-dir.outputs.dir }}/${{ matrix.component }}-sbom.spdx.json
+          push-to-registry: false
+
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@v3
+        if: github.event_name != 'pull_request'
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.component }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: false
+
+      - name: Push container to registry
+        if: github.event_name != 'pull_request'
+        run: docker push ${{ env.REGISTRY_TAG }}
+
+  ##
+  ## Summary Job
+  ##
+
+  ci-summary:
+    name: CI Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [format-and-lint, dependency-security, unit-tests, build-scan-attest]
+    if: always()
+    steps:
+      - name: Generate Pipeline Summary
+        run: |
+          # Determine status icons
+          FORMAT_ICON="${{ needs.format-and-lint.result == 'success' && '✅' || '❌' }}"
+          SECURITY_ICON="${{ needs.dependency-security.result == 'success' && '✅' || '❌' }}"
+          TEST_ICON="${{ needs.unit-tests.result == 'success' && '✅' || '❌' }}"
+          BUILD_ICON="${{ needs.build-scan-attest.result == 'success' && '✅' || '❌' }}"
+
+          # Determine overall status
+          if [ "${{ needs.format-and-lint.result }}" == "success" ] && \
+             [ "${{ needs.dependency-security.result }}" == "success" ] && \
+             [ "${{ needs.unit-tests.result }}" == "success" ] && \
+             [ "${{ needs.build-scan-attest.result }}" == "success" ]; then
+            OVERALL_STATUS="✅ **PASSED**"
+            OVERALL_ICON="✅"
+          else
+            OVERALL_STATUS="❌ **FAILED**"
+            OVERALL_ICON="❌"
+          fi
+
+          # Generate Job Summary
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          # 🚀 CI Pipeline Execution Summary
+
+          ## Overall Status: $OVERALL_STATUS
+
+          ---
+
+          ## Phase A - Quality Gates (Sequential)
+
+          | Job | Status | Result |
+          |-----|--------|--------|
+          | Format & Lint | $FORMAT_ICON | `${{ needs.format-and-lint.result }}` |
+          | Dependency Security | $SECURITY_ICON | `${{ needs.dependency-security.result }}` |
+          | Unit Tests | $TEST_ICON | `${{ needs.unit-tests.result }}` |
+
+          ## Phase B - Build & Scan (Parallel)
+
+          | Job | Status | Result |
+          |-----|--------|--------|
+          | Build/Scan/Attest | $BUILD_ICON | `${{ needs.build-scan-attest.result }}` |
+
+          ---
+
+          ## 📊 Pipeline Details
+
+          - **Workflow**: `${{ github.workflow }}`
+          - **Run Number**: `#${{ github.run_number }}`
+          - **Triggered by**: `${{ github.event_name }}`
+          - **Branch**: `${{ github.ref_name }}`
+          - **Commit**: `${{ github.sha }}`
+          - **Actor**: `@${{ github.actor }}`
+
+          ## 🔗 Useful Links
+
+          - [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [View Commit](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          EOF
+
+          # Replace variables in the summary
+          sed -i "s|\$OVERALL_STATUS|$OVERALL_STATUS|g" $GITHUB_STEP_SUMMARY
+          sed -i "s|\$FORMAT_ICON|$FORMAT_ICON|g" $GITHUB_STEP_SUMMARY
+          sed -i "s|\$SECURITY_ICON|$SECURITY_ICON|g" $GITHUB_STEP_SUMMARY
+          sed -i "s|\$TEST_ICON|$TEST_ICON|g" $GITHUB_STEP_SUMMARY
+          sed -i "s|\$BUILD_ICON|$BUILD_ICON|g" $GITHUB_STEP_SUMMARY
+
+          # Exit with error if pipeline failed
+          if [ "$OVERALL_ICON" == "❌" ]; then
+            exit 1
+          fi

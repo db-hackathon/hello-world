@@ -1,0 +1,7 @@
+databaseChangeLog:
+  - include:
+      file: changelog/001-create-schema.sql
+      relativeToChangelogFile: false
+  - include:
+      file: changelog/002-load-data.sql
+      relativeToChangelogFile: false

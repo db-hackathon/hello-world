@@ -1,0 +1,338 @@
+==> Checking code formatting...
+make[1]: Entering directory '/home/sweeand/hello-world/examples/baby-names/backend'
+[backend] Checking code formatting...
+4 files already formatted
+make[1]: Leaving directory '/home/sweeand/hello-world/examples/baby-names/backend'
+make[1]: Entering directory '/home/sweeand/hello-world/examples/baby-names/frontend'
+[frontend] Checking code formatting...
+2 files already formatted
+make[1]: Leaving directory '/home/sweeand/hello-world/examples/baby-names/frontend'
+==> Format checks passed!
+==> Running lint checks...
+make[1]: Entering directory '/home/sweeand/hello-world/examples/baby-names/backend'
+[backend] Running lint checks...
+All checks passed!
+make[1]: Leaving directory '/home/sweeand/hello-world/examples/baby-names/backend'
+make[1]: Entering directory '/home/sweeand/hello-world/examples/baby-names/frontend'
+[frontend] Running lint checks...
+All checks passed!
+make[1]: Leaving directory '/home/sweeand/hello-world/examples/baby-names/frontend'
+==> Lint checks passed!
+==> Running dependency security scans...
+make[1]: Entering directory '/home/sweeand/hello-world/examples/baby-names/backend'
+[backend] Running dependency security scan...
++==============================================================================+
+
+                               /$$$$$$            /$$
+                              /$$__  $$          | $$
+           /$$$$$$$  /$$$$$$ | $$  \__//$$$$$$  /$$$$$$   /$$   /$$
+          /$$_____/ |____  $$| $$$$   /$$__  $$|_  $$_/  | $$  | $$
+         |  $$$$$$   /$$$$$$$| $$_/  | $$$$$$$$  | $$    | $$  | $$
+          \____  $$ /$$__  $$| $$    | $$_____/  | $$ /$$| $$  | $$
+          /$$$$$$$/|  $$$$$$$| $$    |  $$$$$$$  |  $$$$/|  $$$$$$$
+         |_______/  \_______/|__/     \_______/   \___/   \____  $$
+                                                          /$$  | $$
+                                                         |  $$$$$$/
+  by pyup.io                                              \______/
+
++==============================================================================+
+
+ [1mREPORT[0m 
+
+  Safety [1mv2.3.5[0m is scanning for [1mVulnerabilities[0m[1m...[0m
+[1m  Scanning dependencies[0m in your [1menvironment:[0m
+
+  -> /home/sweeand/.local/lib/python3.12/site-packages
+  -> /usr/lib/python3/dist-packages
+
+  Using [1mnon-commercial database[0m
+[1m  Found and scanned 116 packages[0m
+  Timestamp [1m2025-11-17 14:51:41[0m
+[1m  27[0m[1m vulnerabilities found[0m
+[1m  0[0m[1m vulnerabilities ignored[0m
+
++==============================================================================+
+ [31m[1mVULNERABILITIES FOUND[0m 
++==============================================================================+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0
+[0m[1m   Vulnerability ID: [0m76241
+[1m   Affected spec: [0m<6.0.0
+[1m   ADVISORY: [0mAffected versions of the flask-cors package are vulnerable
+   to Improper Input Validation due to flawed regex pattern prioritization in...
+[1m   CVE-2024-6839[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/76241/f17[0m
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0
+[0m[1m   Vulnerability ID: [0m76237
+[1m   Affected spec: [0m<6.0.0
+[1m   ADVISORY: [0mAffected versions of the flask‑cors package are vulnerable
+   to Improper Handling of Case Sensitivity due to case‑insensitive request...
+[1m   CVE-2024-6866[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/76237/f17[0m
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0
+[0m[1m   Vulnerability ID: [0m76242
+[1m   Affected spec: [0m<6.0.0
+[1m   ADVISORY: [0mAffected versions of the flask-cors package are vulnerable
+   to Improper Input Validation due to inconsistent URL path handling when...
+[1m   CVE-2024-6844[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/76242/f17[0m
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0
+[0m[1m   Vulnerability ID: [0m70624
+[1m   Affected spec: [0m<4.0.1
+[1m   ADVISORY: [0mAffected versions of the flask-cors package are vulnerable
+   to Improper Output Neutralization for Logs due to unsanitized request path...
+[1m   CVE-2024-1681[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/70624/f17[0m
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0
+[0m[1m   Vulnerability ID: [0m72731
+[1m   Affected spec: [0m<4.0.2
+[1m   ADVISORY: [0mA vulnerability in corydolphin/flask-cors version 4.0.1
+   allows the `Access-Control-Allow-Private-Network` CORS header to be set to...
+[1m   CVE-2024-6221[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/72731/f17[0m
+
+
+[31m-> Vulnerability found in jinja2 version 3.1.2
+[0m[1m   Vulnerability ID: [0m71591
+[1m   Affected spec: [0m<3.1.4
+[1m   ADVISORY: [0mJinja is an extensible templating engine. The `xmlattr`
+   filter in affected versions of Jinja accepts keys containing non-attribute...
+[1m   CVE-2024-34064[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/71591/f17[0m
+
+
+[31m-> Vulnerability found in jinja2 version 3.1.2
+[0m[1m   Vulnerability ID: [0m74735
+[1m   Affected spec: [0m>=3.0.0a1,<3.1.5
+[1m   ADVISORY: [0mA vulnerability in the Jinja compiler allows an attacker
+   who can control both the content and filename of a template to execute...
+[1m   CVE-2024-56201[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/74735/f17[0m
+
+
+[31m-> Vulnerability found in jinja2 version 3.1.2
+[0m[1m   Vulnerability ID: [0m75976
+[1m   Affected spec: [0m<3.1.6
+[1m   ADVISORY: [0mPrior to 3.1.6, an oversight in how the Jinja sandboxed
+   environment interacts with the |attr filter allows an attacker that...
+[1m   CVE-2025-27516[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/75976/f17[0m
+
+
+[31m-> Vulnerability found in jinja2 version 3.1.2
+[0m[1m   Vulnerability ID: [0m76378
+[1m   Affected spec: [0m<3.1.5
+[1m   ADVISORY: [0mAn oversight in how the Jinja sandboxed environment detects
+   calls to str.format allows an attacker who controls the content of a...
+[1m   CVE-2024-56326[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/76378/f17[0m
+
+
+[31m-> Vulnerability found in jinja2 version 3.1.2
+[0m[1m   Vulnerability ID: [0m64227
+[1m   Affected spec: [0m<3.1.3
+[1m   ADVISORY: [0mJinja is an extensible templating engine. Special
+   placeholders in the template allow writing code similar to Python syntax....
+[1m   CVE-2024-22195[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/64227/f17[0m
+
+
+[31m-> Vulnerability found in certifi version 2023.11.17
+[0m[1m   Vulnerability ID: [0m72083
+[1m   Affected spec: [0m>=2021.05.30,<2024.07.04
+[1m   ADVISORY: [0mCertifi affected versions recognized root certificates from
+   GLOBALTRUST. Certifi patch removes these root certificates from the root...
+[1m   CVE-2024-39689[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/72083/f17[0m
+
+
+[31m-> Vulnerability found in configobj version 5.0.8
+[0m[1m   Vulnerability ID: [0m54843
+[1m   Affected spec: [0m<5.0.9
+[1m   ADVISORY: [0mThe configobj package affected versions contains a Regular
+   Expression Denial of Service (ReDoS) vulnerability in its validate...
+[1m   CVE-2023-26112[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/54843/f17[0m
+
+
+[31m-> Vulnerability found in cryptography version 41.0.7
+[0m[1m   Vulnerability ID: [0m65278
+[1m   Affected spec: [0m<42.0.0
+[1m   ADVISORY: [0mAffected versions of Cryptography may allow a remote
+   attacker to decrypt captured messages in TLS servers that use RSA key...
+[1m   CVE-2023-50782[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/65278/f17[0m
+
+
+[31m-> Vulnerability found in cryptography version 41.0.7
+[0m[1m   Vulnerability ID: [0m65212
+[1m   Affected spec: [0m>=35.0.0,<42.0.2
+[1m   ADVISORY: [0mVersions of Cryptograph starting from 35.0.0 are
+   susceptible to a security flaw in the POLY1305 MAC algorithm on PowerPC...
+[1m   CVE-2023-6129[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/65212/f17[0m
+
+
+[31m-> Vulnerability found in cryptography version 41.0.7
+[0m[1m   Vulnerability ID: [0m65647
+[1m   Affected spec: [0m<42.0.5
+[1m   ADVISORY: [0mCryptography version 42.0.5 introduces a limit on the
+   number of name constraint checks during X.509 path validation to prevent...
+[1m   PVE-2024-65647[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/65647/f17[0m
+
+
+[31m-> Vulnerability found in cryptography version 41.0.7
+[0m[1m   Vulnerability ID: [0m66704
+[1m   Affected spec: [0m>=38.0.0,<42.0.4
+[1m   ADVISORY: [0mcryptography is a package designed to expose cryptographic
+   primitives and recipes to Python developers. Starting in version 38.0.0...
+[1m   CVE-2024-26130[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/66704/f17[0m
+
+
+[31m-> Vulnerability found in idna version 3.6
+[0m[1m   Vulnerability ID: [0m67895
+[1m   Affected spec: [0m<3.7
+[1m   ADVISORY: [0mAffected versions of Idna are vulnerable to Denial Of
+   Service via the idna.encode(), where a specially crafted argument could...
+[1m   CVE-2024-3651[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/67895/f17[0m
+
+
+[31m-> Vulnerability found in pip version 24.0
+[0m[1m   Vulnerability ID: [0m75180
+[1m   Affected spec: [0m<25.0
+[1m   ADVISORY: [0mPip solves a security vulnerability that previously allowed
+   maliciously crafted wheel files to execute unauthorized code during...
+[1m   PVE-2025-75180[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/75180/f17[0m
+
+
+[31m-> Vulnerability found in pip version 24.0
+[0m[1m   Vulnerability ID: [0m79883
+[1m   Affected spec: [0m<25.2
+[1m   ADVISORY: [0mAffected versions of the pip package are vulnerable to
+   Arbitrary File Overwrite due to improper validation of symbolic link...
+[1m   CVE-2025-8869[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/79883/f17[0m
+
+
+[31m-> Vulnerability found in requests version 2.31.0
+[0m[1m   Vulnerability ID: [0m71064
+[1m   Affected spec: [0m<2.32.2
+[1m   ADVISORY: [0mAffected versions of Requests, when making requests through
+   a Requests `Session`, if the first request is made with `verify=False` to...
+[1m   CVE-2024-35195[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/71064/f17[0m
+
+
+[31m-> Vulnerability found in requests version 2.31.0
+[0m[1m   Vulnerability ID: [0m77680
+[1m   Affected spec: [0m<2.32.4
+[1m   ADVISORY: [0mRequests is an HTTP library. Due to a URL parsing issue,
+   Requests releases prior to 2.32.4 may leak .netrc credentials to third...
+[1m   CVE-2024-47081[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/77680/f17[0m
+
+
+[31m-> Vulnerability found in setuptools version 68.1.2
+[0m[1m   Vulnerability ID: [0m76752
+[1m   Affected spec: [0m<78.1.1
+[1m   ADVISORY: [0mAffected versions of Setuptools are vulnerable to Path
+   Traversal via PackageIndex.download(). The impact is Arbitrary File...
+[1m   CVE-2025-47273[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/76752/f17[0m
+
+
+[31m-> Vulnerability found in setuptools version 68.1.2
+[0m[1m   Vulnerability ID: [0m72236
+[1m   Affected spec: [0m<70.0.0
+[1m   ADVISORY: [0mAffected versions of Setuptools allow for remote code
+   execution via its download functions. These functions, which are used to...
+[1m   CVE-2024-6345[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/72236/f17[0m
+
+
+[31m-> Vulnerability found in twisted version 24.3.0
+[0m[1m   Vulnerability ID: [0m73795
+[1m   Affected spec: [0m<24.7.0rc1
+[1m   ADVISORY: [0mAffected versions of Twisted are vulnerable to XSS. The
+   `twisted.web.util.redirectTo` function contains an HTML injection...
+[1m   CVE-2024-41810[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/73795/f17[0m
+
+
+[31m-> Vulnerability found in twisted version 24.3.0
+[0m[1m   Vulnerability ID: [0m73800
+[1m   Affected spec: [0m<24.7.0rc1
+[1m   ADVISORY: [0mAffected versions of Twisted are vulnerable to HTTP Request
+   Smuggling. The HTTP 1.0 and 1.1 server provided by twisted.web could...
+[1m   CVE-2024-41671[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/73800/f17[0m
+
+
+[31m-> Vulnerability found in urllib3 version 2.0.7
+[0m[1m   Vulnerability ID: [0m77744
+[1m   Affected spec: [0m<2.5.0
+[1m   ADVISORY: [0murllib3 is a user-friendly HTTP client library for Python.
+   Prior to 2.5.0, it is possible to disable redirects for all requests by...
+[1m   CVE-2025-50181[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/77744/f17[0m
+
+
+[31m-> Vulnerability found in urllib3 version 2.0.7
+[0m[1m   Vulnerability ID: [0m71608
+[1m   Affected spec: [0m>=2.0.0a1,<=2.2.1
+[1m   ADVISORY: [0mUrllib3's ProxyManager ensures that the Proxy-Authorization
+   header is correctly directed only to configured proxies. However, when...
+[1m   CVE-2024-37891[0m
+[1m   For more information, please visit
+   [0mhttps://data.safetycli.com/v/71608/f17[0m
+
+ Scan was completed. 27 vulnerabilities were found. 
+
++==============================================================================+
+[32m[1m   REMEDIATIONS[0m
+
+  27 vulnerabilities were found in 11 packages. For detailed remediation & fix 
+  recommendations, upgrade to a commercial license. 
+
++==============================================================================+[0m
+make[1]: *** [Makefile:55: security-check] Error 64
+make[1]: Leaving directory '/home/sweeand/hello-world/examples/baby-names/backend'
+make: *** [Makefile:46: security-check] Error 2

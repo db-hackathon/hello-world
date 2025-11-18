@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baby Names Rank Finder</title>
+</head>
+<body>
+    <h1>Baby Names Rank Finder</h1>
+    <p>Search for a baby boy's name to find its popularity rank in England and Wales (2024).</p>
+
+    <form method="GET" action="/">
+        <label for="name">Enter a name:</label>
+        <input
+            type="text"
+            id="name"
+            name="name"
+            value="{{ name or '' }}"
+            placeholder="e.g., Noah, Oliver, George"
+            required
+        >
+        <button type="submit">Search</button>
+    </form>
+
+    {% if result %}
+    <div class="result">
+        <h2>Result</h2>
+        <p><strong>Name:</strong> {{ result.name }}</p>
+        <p><strong>Rank:</strong> #{{ result.rank }}</p>
+        <p><strong>Count:</strong> {{ result.count }} babies</p>
+        <p><strong>Year:</strong> {{ result.year }}</p>
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="error">
+        <p><strong>Error:</strong> {{ error }}</p>
+    </div>
+    {% endif %}
+
+    <footer>
+        <p>Data source: UK Office for National Statistics (ONS)</p>
+    </footer>
+</body>
+</html>

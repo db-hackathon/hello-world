@@ -1,0 +1,11 @@
+# Safety Policy Configuration
+# https://docs.pyup.io/docs/getting-started-with-safety-cli
+
+security:
+  # Fail the scan only on CRITICAL vulnerabilities
+  fail-scan-with-exit-code:
+    dependency-vulnerabilities:
+      enabled: true
+      cvss-severity:
+        - critical    # Fail on CRITICAL severity
+        - unknown     # Also fail on unscored CVEs (safety best practice)

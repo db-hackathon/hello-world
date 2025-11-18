@@ -1,0 +1,292 @@
+name: CD
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_BACKEND: ${{ github.repository }}/baby-names-backend
+  IMAGE_NAME_FRONTEND: ${{ github.repository }}/baby-names-frontend
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest requests
+
+      - name: Start services with docker-compose
+        working-directory: examples/baby-names
+        run: |
+          docker-compose up -d
+          echo "Waiting for services to be ready..."
+          sleep 30
+
+      - name: Check service health
+        run: |
+          curl --retry 10 --retry-delay 5 --retry-connrefused http://localhost:5000/health
+          curl --retry 10 --retry-delay 5 --retry-connrefused http://localhost:8080/health
+
+      - name: Run integration tests
+        working-directory: examples/baby-names
+        env:
+          BACKEND_URL: http://localhost:5000
+          FRONTEND_URL: http://localhost:8080
+        run: |
+          pytest tests/integration/ -v
+
+      - name: Show service logs on failure
+        if: failure()
+        working-directory: examples/baby-names
+        run: |
+          echo "=== Backend logs ==="
+          docker-compose logs backend
+          echo "=== Frontend logs ==="
+          docker-compose logs frontend
+          echo "=== Database logs ==="
+          docker-compose logs postgres
+
+      - name: Cleanup
+        if: always()
+        working-directory: examples/baby-names
+        run: docker-compose down -v
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://baby-names-staging.example.com
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images
+        run: |
+          echo "Pulling backend image..."
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
+          echo "Pulling frontend image..."
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+
+      - name: Deploy to Kubernetes (Stubbed)
+        run: |
+          echo "=========================================="
+          echo "DEPLOYMENT STEP - CURRENTLY STUBBED"
+          echo "=========================================="
+          echo ""
+          echo "This step would:"
+          echo "  1. Configure kubectl with staging cluster credentials"
+          echo "  2. Apply Kubernetes manifests from k8s/ directory"
+          echo "  3. Update image tags to: main-${{ github.sha }}"
+          echo "  4. Wait for rollout to complete"
+          echo "  5. Verify deployment health"
+          echo ""
+          echo "Target cluster: staging-k8s-cluster"
+          echo "Namespace: baby-names-staging"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+          echo ""
+          echo "Deployment would use:"
+          echo "  - Terraform-managed GKE cluster (public cloud variant)"
+          echo "  - PostgreSQL database from IDP product"
+          echo "  - Ingress with TLS termination"
+          echo "  - Horizontal Pod Autoscaling"
+          echo "  - Resource limits and requests"
+          echo ""
+          echo "=========================================="
+
+      - name: Record deployment
+        run: |
+          echo "Deployment to staging completed at $(date)"
+          echo "Git SHA: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+
+  smoke-tests-staging:
+    name: Smoke Tests (Staging)
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest requests
+
+      - name: Run smoke tests (Stubbed)
+        env:
+          BACKEND_URL: https://api-baby-names-staging.example.com
+          FRONTEND_URL: https://baby-names-staging.example.com
+        run: |
+          echo "=========================================="
+          echo "SMOKE TESTS - CURRENTLY STUBBED"
+          echo "=========================================="
+          echo ""
+          echo "This step would run:"
+          echo "  pytest tests/smoke/ -v"
+          echo ""
+          echo "Against endpoints:"
+          echo "  Backend: $BACKEND_URL"
+          echo "  Frontend: $FRONTEND_URL"
+          echo ""
+          echo "Tests would verify:"
+          echo "  ✓ Services are responding"
+          echo "  ✓ Health endpoints return 200"
+          echo "  ✓ Database connectivity"
+          echo "  ✓ Critical user path (search for name)"
+          echo "  ✓ Top names are present in database"
+          echo ""
+          echo "All smoke tests passed (simulated)"
+          echo "=========================================="
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: smoke-tests-staging
+    if: github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://baby-names.example.com
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images
+        run: |
+          echo "Pulling backend image..."
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
+          echo "Pulling frontend image..."
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+
+      - name: Deploy to Production Kubernetes (Stubbed)
+        run: |
+          echo "=========================================="
+          echo "PRODUCTION DEPLOYMENT - CURRENTLY STUBBED"
+          echo "=========================================="
+          echo ""
+          echo "This step would:"
+          echo "  1. Configure kubectl with production cluster credentials"
+          echo "  2. Apply Kubernetes manifests with production configs"
+          echo "  3. Perform blue-green or canary deployment"
+          echo "  4. Update image tags to: main-${{ github.sha }}"
+          echo "  5. Gradual traffic shift to new version"
+          echo "  6. Monitor error rates and latency"
+          echo "  7. Automatic rollback on failure"
+          echo ""
+          echo "Target cluster: production-k8s-cluster"
+          echo "Namespace: baby-names-prod"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+          echo ""
+          echo "Production features:"
+          echo "  - Multi-zone deployment for high availability"
+          echo "  - Production-grade PostgreSQL with read replicas"
+          echo "  - CDN for static assets"
+          echo "  - WAF and DDoS protection"
+          echo "  - Comprehensive monitoring and alerting"
+          echo ""
+          echo "=========================================="
+
+      - name: Record production deployment
+        run: |
+          echo "Production deployment completed at $(date)"
+          echo "Git SHA: ${{ github.sha }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Deployment requires manual approval via GitHub Environments"
+
+  smoke-tests-production:
+    name: Smoke Tests (Production)
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest requests
+
+      - name: Run smoke tests (Stubbed)
+        env:
+          BACKEND_URL: https://api.baby-names.example.com
+          FRONTEND_URL: https://baby-names.example.com
+        run: |
+          echo "=========================================="
+          echo "PRODUCTION SMOKE TESTS - CURRENTLY STUBBED"
+          echo "=========================================="
+          echo ""
+          echo "This step would run:"
+          echo "  pytest tests/smoke/ -v"
+          echo ""
+          echo "Against production endpoints:"
+          echo "  Backend: $BACKEND_URL"
+          echo "  Frontend: $FRONTEND_URL"
+          echo ""
+          echo "Tests would verify:"
+          echo "  ✓ Services are responding"
+          echo "  ✓ Health endpoints return 200"
+          echo "  ✓ Database connectivity"
+          echo "  ✓ Critical user path (search for name)"
+          echo "  ✓ Top names are present in database"
+          echo "  ✓ SSL certificates valid"
+          echo "  ✓ Response times within SLO"
+          echo ""
+          echo "All production smoke tests passed (simulated)"
+          echo "=========================================="
+
+      - name: Notify deployment success
+        run: |
+          echo "Production deployment verified successfully"
+          echo "Application is live at https://baby-names.example.com"

@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: baby-names-db
+    environment:
+      POSTGRES_DB: baby_names
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d baby_names"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db-migration:
+    build:
+      context: ./database
+      dockerfile: Dockerfile
+    container_name: baby-names-migration
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/baby_names
+      LIQUIBASE_COMMAND_USERNAME: app_user
+      LIQUIBASE_COMMAND_PASSWORD: app_password
+    command: ["--changelog-file=changelog/db.changelog-master.yaml", "update"]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: baby-names-backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      db-migration:
+        condition: service_completed_successfully
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: baby_names
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: baby-names-frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+    environment:
+      BACKEND_URL: http://backend:5000
+
+volumes:
+  postgres_data:
