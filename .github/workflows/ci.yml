@@ -161,10 +161,6 @@ jobs:
       fail-fast: true
       matrix:
         component: [backend, frontend, db-migration]
-    outputs:
-      backend-digest: ${{ steps.build.outputs.digest }}
-      frontend-digest: ${{ steps.build.outputs.digest }}
-      db-migration-digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -271,6 +267,26 @@ jobs:
         if: github.event_name != 'pull_request'
         run: docker push ${{ env.REGISTRY_TAG }}
 
+      - name: Save container details
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p container-details
+          cat > container-details/${{ matrix.component }}.json <<EOF
+          {
+            "component": "${{ matrix.component }}",
+            "registry_url": "${{ env.REGISTRY_TAG }}",
+            "digest": "${{ steps.digest.outputs.digest }}",
+            "pushed": true
+          }
+          EOF
+
+      - name: Upload container details
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-details-${{ matrix.component }}
+          path: container-details/${{ matrix.component }}.json
+
   ##
   ## Summary Job
   ##
@@ -281,6 +297,14 @@ jobs:
     needs: [format-and-lint, dependency-security, unit-tests, build-scan-attest]
     if: always()
     steps:
+      - name: Download container details
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: container-details-*
+          path: container-details
+          merge-multiple: true
+
       - name: Generate Pipeline Summary
         run: |
           # Determine status icons
@@ -323,6 +347,8 @@ jobs:
           |-----|--------|--------|
           | Build/Scan/Attest | $BUILD_ICON | `${{ needs.build-scan-attest.result }}` |
 
+          CONTAINER_DETAILS_SECTION
+
           ---
 
           ## 📊 Pipeline Details
@@ -339,6 +365,31 @@ jobs:
           - [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           - [View Commit](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
           EOF
+
+          # Add container details section if available
+          if [ -d "container-details" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            CONTAINER_TABLE=""
+            CONTAINER_TABLE+="## 📦 Published Containers\n\n"
+            CONTAINER_TABLE+="| Component | Registry URL | Digest |\n"
+            CONTAINER_TABLE+="|-----------|--------------|--------|\n"
+
+            for json_file in container-details/*.json; do
+              if [ -f "$json_file" ]; then
+                COMPONENT=$(jq -r '.component' "$json_file")
+                REGISTRY_URL=$(jq -r '.registry_url' "$json_file")
+                DIGEST=$(jq -r '.digest' "$json_file" | cut -c1-19)  # Truncate digest for readability
+                CONTAINER_TABLE+="| \`$COMPONENT\` | \`$REGISTRY_URL\` | \`${DIGEST}...\` |\n"
+              fi
+            done
+
+            CONTAINER_TABLE+="\n**Note**: Full container attestations (SBOM, provenance, vulnerability scans) are available in the workflow artifacts.\n"
+
+            # Replace placeholder with actual content
+            sed -i "s|CONTAINER_DETAILS_SECTION|$(echo -e "$CONTAINER_TABLE")|g" $GITHUB_STEP_SUMMARY
+          else
+            # Remove placeholder for PR builds
+            sed -i "/CONTAINER_DETAILS_SECTION/d" $GITHUB_STEP_SUMMARY
+          fi
 
           # Replace variables in the summary
           sed -i "s|\$OVERALL_STATUS|$OVERALL_STATUS|g" $GITHUB_STEP_SUMMARY
