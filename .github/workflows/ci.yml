@@ -93,10 +93,7 @@ jobs:
         if: always()
         run: |
           pip install -q -r requirements.txt
-          safety scan \
-            --policy-file ../.safety-policy.yml \
-            --output json \
-            --save-as safety-report.json || true
+          safety check --json > safety-report.json || true
 
       - name: Upload safety report
         uses: actions/upload-artifact@v4
