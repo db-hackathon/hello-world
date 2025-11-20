@@ -2,6 +2,7 @@
 # These values override the defaults in values.yaml
 
 namespace:
+  create: false  # Namespace created by helm --create-namespace flag to avoid ordering issues
   name: baby-names-staging
 
 serviceAccount:

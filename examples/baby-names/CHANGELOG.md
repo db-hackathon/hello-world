@@ -108,10 +108,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed frontend image path: `ghcr.io/db-hackathon/hello-world/baby-names-frontend`
   - Fixed migration image path: `ghcr.io/db-hackathon/hello-world/baby-names-db-migration`
   - Aligns with CI workflow image naming convention using `${{ github.repository }}`
-- Helm deployment failure due to namespace creation conflict
-  - Removed `--create-namespace` flag from CD workflow helm command
-  - Namespace now managed exclusively through Helm template (templates/namespace.yaml)
-  - Prevents "namespace already exists" error when Helm template and flag both try to create namespace
+- Helm deployment failure due to namespace creation ordering issues
+  - Disabled namespace template creation in staging environment (`namespace.create: false`)
+  - Re-enabled `--create-namespace` flag in CD workflow for namespace creation
+  - Prevents "namespace not found" errors when Helm tries to create resources before namespace exists
+  - Avoids "namespace already exists" conflict between Helm flag and template
 
 ### Security
 - Container images now scan clean for CRITICAL vulnerabilities
