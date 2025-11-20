@@ -99,6 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Import sorting issues detected by Ruff
 - Module-level database instantiation now properly mocked during tests
 - Configuration files (`.safety-policy.yml`, `ruff.toml`) moved to correct location under `examples/baby-names/`
+- Helm deployment ordering issue where migration job couldn't find service account
+  - Removed Helm hooks from migration job to allow regular resource creation order
+  - Added init containers to backend/frontend to wait for migration completion
+  - Ensures service account exists before migration job attempts to use it
 
 ### Security
 - Container images now scan clean for CRITICAL vulnerabilities

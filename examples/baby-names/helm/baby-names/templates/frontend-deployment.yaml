@@ -23,6 +23,19 @@ spec:
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000
+      initContainers:
+      - name: wait-for-migration
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Waiting for database migration to complete..."
+          until kubectl wait --for=condition=complete --timeout=600s job/{{ include "baby-names.fullname" . }}-migration-{{ .Release.Revision }} -n {{ .Values.namespace.name }}; do
+            echo "Migration job not complete yet, waiting..."
+            sleep 5
+          done
+          echo "Migration complete, starting frontend..."
       containers:
       - name: frontend
         image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
