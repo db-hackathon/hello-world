@@ -103,6 +103,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed Helm hooks from migration job to allow regular resource creation order
   - Added init containers to backend/frontend to wait for migration completion
   - Ensures service account exists before migration job attempts to use it
+- Container image paths in Helm values.yaml missing repository path component
+  - Fixed backend image path: `ghcr.io/db-hackathon/hello-world/baby-names-backend`
+  - Fixed frontend image path: `ghcr.io/db-hackathon/hello-world/baby-names-frontend`
+  - Fixed migration image path: `ghcr.io/db-hackathon/hello-world/baby-names-db-migration`
+  - Aligns with CI workflow image naming convention using `${{ github.repository }}`
 
 ### Security
 - Container images now scan clean for CRITICAL vulnerabilities
