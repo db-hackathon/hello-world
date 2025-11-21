@@ -532,21 +532,115 @@ This application uses the official 2024 baby names data from the UK Office for N
 
 ## Deployment
 
-The application is designed to be deployed to:
+### GKE Deployment (Staging)
 
-1. **Public Cloud** (GKE)
-   - Terraform-managed Google Kubernetes Engine cluster
-   - Cloud SQL for PostgreSQL
-   - Load balancer with TLS termination
-   - Auto-scaling for high availability
+The application is deployed to Google Kubernetes Engine using Helm:
 
-2. **Private Cloud** (kind/k3s)
-   - Local Kubernetes cluster via kind
-   - Self-hosted PostgreSQL
-   - Ingress controller for routing
-   - Suitable for development and testing
+**Infrastructure Status**: ✅ Configured
+- **Cluster**: `hellow-world-manual` in `europe-west1`
+- **Database**: CloudSQL instance `hello-world-manual` with IAM authentication
+- **Namespace**: `baby-names-staging`
+- **Ingress**: GCE ingress at `gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog`
 
-Deployment manifests and Terraform configurations are managed by the parent IDP products.
+**Helm Chart**: Located in `helm/baby-names/` with environment-specific values files
+- `values.yaml`: Default configuration
+- `values-staging.yaml`: Staging environment overrides
+
+**Deployment Command**:
+```bash
+cd helm/baby-names
+helm upgrade --install baby-names . \
+  --namespace baby-names-staging \
+  --create-namespace \
+  --values values-staging.yaml \
+  --set backend.image.tag=main \
+  --set frontend.image.tag=main \
+  --set migration.image.tag=main \
+  --wait --timeout 10m
+```
+
+**Required Infrastructure Components**:
+
+1. **Cloud NAT** (for private GKE cluster egress):
+   ```bash
+   gcloud compute routers create nat-router \
+     --network default \
+     --region europe-west1 \
+     --project extended-ascent-477308-m8
+
+   gcloud compute routers nats create nat-config \
+     --router nat-router \
+     --region europe-west1 \
+     --nat-all-subnet-ip-ranges \
+     --auto-allocate-nat-external-ips \
+     --project extended-ascent-477308-m8
+   ```
+
+2. **ImagePullSecret** (for GitHub Container Registry):
+   ```bash
+   kubectl create secret docker-registry ghcr-secret \
+     --docker-server=ghcr.io \
+     --docker-username=<GITHUB_USERNAME> \
+     --docker-password=<GITHUB_PAT> \
+     --docker-email=noreply@github.com \
+     -n baby-names-staging
+
+   kubectl patch serviceaccount baby-names-staging \
+     -n baby-names-staging \
+     -p '{"imagePullSecrets": [{"name": "ghcr-secret"}]}'
+   ```
+   Note: GitHub PAT requires `read:packages` scope
+
+3. **Workload Identity Binding** (K8s SA to GCP SA):
+   ```bash
+   gcloud iam service-accounts add-iam-policy-binding \
+     hello-world-staging@extended-ascent-477308-m8.iam.gserviceaccount.com \
+     --role roles/iam.workloadIdentityUser \
+     --member "serviceAccount:extended-ascent-477308-m8.svc.id.goog[baby-names-staging/baby-names-staging]" \
+     --project extended-ascent-477308-m8
+   ```
+
+4. **Cloud SQL Client Role**:
+   ```bash
+   gcloud projects add-iam-policy-binding extended-ascent-477308-m8 \
+     --member="serviceAccount:hello-world-staging@extended-ascent-477308-m8.iam.gserviceaccount.com" \
+     --role="roles/cloudsql.client" \
+     --condition=None
+   ```
+
+5. **Cloud SQL Admin API**:
+   ```bash
+   gcloud services enable sqladmin.googleapis.com --project=extended-ascent-477308-m8
+   ```
+
+6. **IAM Database User**:
+   ```bash
+   gcloud sql users create "hello-world-staging@extended-ascent-477308-m8.iam" \
+     --instance=hello-world-manual \
+     --type=CLOUD_IAM_SERVICE_ACCOUNT \
+     --project extended-ascent-477308-m8
+   ```
+
+**Continuous Deployment**: Automated via `.github/workflows/cd.yml`
+- Triggered on push to `main` branch
+- Uses Direct Workload Identity Federation (no service account keys)
+- Deploys with commit SHA as image tag
+- Runs smoke tests post-deployment
+
+**Known Limitations**:
+- PostgreSQL GRANT permissions for IAM database user require manual configuration
+- See CHANGELOG.md for complete infrastructure setup history
+
+### Local Development
+
+For local development and testing:
+```bash
+cd examples/baby-names
+export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
+docker-compose up -d
+```
+
+See "Running the Application" section above for complete local setup instructions.
 
 ## Environment Variables
 

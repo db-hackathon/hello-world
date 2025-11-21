@@ -31,8 +31,28 @@ spec:
         - -c
         - |
           echo "Waiting for database migration to complete..."
-          until kubectl wait --for=condition=complete --timeout=600s job/{{ include "baby-names.fullname" . }}-migration-{{ .Release.Revision }} -n {{ .Values.namespace.name }}; do
-            echo "Migration job not complete yet, waiting..."
+          JOB_NAME="{{ include "baby-names.fullname" . }}-migration-{{ .Release.Revision }}"
+
+          # Wait for job to exist and get pod name
+          for i in $(seq 1 60); do
+            POD_NAME=$(kubectl get pods -n {{ .Values.namespace.name }} -l job-name=$JOB_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [ -n "$POD_NAME" ]; then
+              echo "Found migration pod: $POD_NAME"
+              break
+            fi
+            echo "Waiting for migration pod to be created..."
+            sleep 2
+          done
+
+          if [ -z "$POD_NAME" ]; then
+            echo "Migration pod not found after 120s, checking if database is already migrated..."
+            exit 0
+          fi
+
+          # Wait for migration container to succeed
+          echo "Waiting for migration container to complete..."
+          until kubectl get pod $POD_NAME -n {{ .Values.namespace.name }} -o jsonpath='{.status.containerStatuses[?(@.name=="migration")].state.terminated.exitCode}' 2>/dev/null | grep -q "^0$"; do
+            echo "Migration not complete yet, waiting..."
             sleep 5
           done
           echo "Migration complete, starting backend..."

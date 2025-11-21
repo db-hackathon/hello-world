@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cloud SQL Proxy sidecar handles IAM token generation
   - Maintains backward compatibility with password-based auth
   - Liquibase migrations support IAM authentication
+- GKE infrastructure requirements for private clusters
+  - Cloud NAT configuration for egress traffic to external registries
+  - Cloud SQL Admin API enablement for IAM authentication
+  - Workload Identity binding between Kubernetes and GCP service accounts
+  - IAM database user creation in CloudSQL
+- ImagePullSecret configuration for private container registries
+  - Kubernetes secret for GitHub Container Registry authentication
+  - Service account patching with imagePullSecrets
+  - Support for read:packages scoped GitHub personal access tokens
 - Makefile-based build system for local and CI execution
   - Root Makefile for orchestrating multi-component builds
   - Component-level Makefiles (backend, frontend, database)
@@ -113,6 +122,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Re-enabled `--create-namespace` flag in CD workflow for namespace creation
   - Prevents "namespace not found" errors when Helm tries to create resources before namespace exists
   - Avoids "namespace already exists" conflict between Helm flag and template
+- Private GKE cluster network connectivity for external container registries
+  - Created Cloud Router (`nat-router`) in `europe-west1` region
+  - Configured Cloud NAT (`nat-config`) for all subnet IP ranges with auto-allocated external IPs
+  - Enables private cluster nodes to pull images from ghcr.io and other external registries
+- Container image authentication to GitHub Container Registry
+  - Created Kubernetes docker-registry secret (`ghcr-secret`) with read:packages scoped token
+  - Patched service account with imagePullSecrets for automatic credential injection
+  - Resolved 401 Unauthorized and 403 Forbidden errors when pulling private images
+- CI workflow image tagging for GKE deployments
+  - CD workflow now uses `main` tag instead of SHA-based tags
+  - Aligns with CI workflow's metadata-action tag strategy (`type=ref,event=branch`)
+  - Resolved "image not found" errors during Helm deployments
+- Cloud SQL Proxy IAM authentication configuration
+  - Added `roles/cloudsql.client` to GCP service account for Cloud SQL Proxy access
+  - Created Workload Identity binding: `serviceAccount:extended-ascent-477308-m8.svc.id.goog[baby-names-staging/baby-names-staging]`
+  - Enabled Cloud SQL Admin API (`sqladmin.googleapis.com`) in project
+  - Created IAM database user `hello-world-staging@extended-ascent-477308-m8.iam` in CloudSQL instance
+- CloudSQL instance IAM authentication enablement
+  - Enabled `cloudsql.iam_authentication=on` database flag on CloudSQL instance
+  - Required prerequisite for IAM-based database authentication to function
+  - Instance restart required for flag to take effect
+- PostgreSQL database permissions for IAM service account
+  - Manually created `baby_names` database via postgres user
+  - Granted ALL PRIVILEGES on database and public schema to IAM service account
+  - Granted CREATE permission on public schema for migration table creation
+  - Configured default privileges for future tables and sequences
+- RBAC permissions for init containers
+  - Created Role `migration-watcher` with get/list/watch permissions for pods and jobs
+  - Created RoleBinding linking role to `baby-names-staging` service account
+  - Enables init containers to query migration pod status
+- Init container migration completion detection
+  - Updated init containers to check migration pod completion instead of job completion
+  - Works around Kubernetes Jobs with sidecars limitation (cloud-sql-proxy never exits)
+  - Checks for migration container exit code 0 instead of job condition=complete
+  - Added fallback timeout to proceed if migration pod not found (database already migrated)
 
 ### Security
 - Container images now scan clean for CRITICAL vulnerabilities

@@ -229,10 +229,25 @@ Three-phase pipeline with comprehensive attestations:
 - **Cloud SQL Proxy**: Automatic IAM token refresh and secure connection
 
 **Target Infrastructure** (manually provisioned):
-- **GKE Cluster**: `hellow-world-manual` in `europe-west1`
+- **GKE Cluster**: `hellow-world-manual` in `europe-west1` (private cluster with Workload Identity enabled)
 - **CloudSQL Instance**: `hello-world-manual` in `europe-west1`
 - **Namespace**: `baby-names-staging`
 - **Ingress**: GCE ingress at `gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog`
+
+**Required Infrastructure Components**:
+- **Cloud NAT**: Router `nat-router` with NAT config `nat-config` in `europe-west1` for private cluster egress
+- **Cloud SQL Admin API**: Enabled via `gcloud services enable sqladmin.googleapis.com`
+- **CloudSQL IAM Authentication Flag**: `cloudsql.iam_authentication=on` enabled on CloudSQL instance
+- **GCP Service Account**: `hello-world-staging@extended-ascent-477308-m8.iam.gserviceaccount.com` with:
+  - `roles/cloudsql.client` (project-level)
+  - `roles/cloudsql.instanceUser` (project-level, conditional on resource tags)
+  - `roles/iam.workloadIdentityUser` (service account-level binding to K8s SA)
+- **IAM Database User**: `hello-world-staging@extended-ascent-477308-m8.iam` (CloudSQL IAM user) with PostgreSQL permissions:
+  - ALL PRIVILEGES on `baby_names` database
+  - CREATE permission on public schema
+  - Default privileges configured for future objects
+- **ImagePullSecret**: `ghcr-secret` in `baby-names-staging` namespace with GitHub PAT (read:packages scope)
+- **RBAC Permissions**: Role `migration-watcher` granting get/list/watch on pods/jobs to `baby-names-staging` service account
 
 **Production Deployment** (future):
 - Manual approval via GitHub Environments
@@ -330,6 +345,120 @@ export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
 
 **Issue**: PostgreSQL COPY command fails in containerized environments
 **Solution**: Use INSERT statements instead of COPY FROM for CSV data loading
+
+### GKE Deployment Troubleshooting
+
+**Issue**: ImagePullBackOff with "dial tcp ... i/o timeout" errors
+**Root Cause**: Private GKE cluster nodes cannot reach external registries (ghcr.io) without Cloud NAT
+**Solution**: Configure Cloud NAT for private cluster egress:
+```bash
+gcloud compute routers create nat-router --network default --region europe-west1 --project <PROJECT_ID>
+gcloud compute routers nats create nat-config \
+  --router nat-router \
+  --region europe-west1 \
+  --nat-all-subnet-ip-ranges \
+  --auto-allocate-nat-external-ips \
+  --project <PROJECT_ID>
+```
+
+**Issue**: ImagePullBackOff with "401 Unauthorized" or "403 Forbidden" errors
+**Root Cause**: Kubernetes cluster lacks credentials to pull from private GitHub Container Registry
+**Solution**: Create imagePullSecret and patch service account:
+```bash
+# Create secret with GitHub PAT (read:packages scope)
+kubectl create secret docker-registry ghcr-secret \
+  --docker-server=ghcr.io \
+  --docker-username=<GITHUB_USERNAME> \
+  --docker-password=<GITHUB_PAT> \
+  --docker-email=noreply@github.com \
+  -n <NAMESPACE>
+
+# Patch service account
+kubectl patch serviceaccount <SERVICE_ACCOUNT_NAME> \
+  -n <NAMESPACE> \
+  -p '{"imagePullSecrets": [{"name": "ghcr-secret"}]}'
+```
+
+**Issue**: ImagePullBackOff with "not found" errors
+**Root Cause**: CI workflow pushes images with `main` tag, but CD workflow tries to use SHA-based tags
+**Solution**: Update Helm deployment to use `main` tag instead of commit SHA:
+```bash
+helm upgrade --install baby-names . \
+  --set backend.image.tag=main \
+  --set frontend.image.tag=main \
+  --set migration.image.tag=main
+```
+
+**Issue**: Cloud SQL Proxy error: "Permission 'iam.serviceAccounts.getAccessToken' denied"
+**Root Cause**: Kubernetes service account not bound to GCP service account via Workload Identity
+**Solution**: Create IAM policy binding:
+```bash
+gcloud iam service-accounts add-iam-policy-binding <GCP_SA_EMAIL> \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:<PROJECT_ID>.svc.id.goog[<NAMESPACE>/<K8S_SA_NAME>]" \
+  --project <PROJECT_ID>
+```
+
+**Issue**: Cloud SQL Proxy error: "Cloud SQL Admin API has not been used"
+**Root Cause**: Cloud SQL Admin API is disabled in the project
+**Solution**: Enable the API:
+```bash
+gcloud services enable sqladmin.googleapis.com --project=<PROJECT_ID>
+```
+
+**Issue**: Database authentication error: "Cloud SQL IAM service account authentication failed"
+**Root Cause**: IAM authentication not enabled on CloudSQL instance
+**Solution**: Enable IAM authentication flag on CloudSQL instance:
+```bash
+gcloud sql instances patch <INSTANCE_NAME> \
+  --database-flags=cloudsql.iam_authentication=on \
+  --project=<PROJECT_ID>
+```
+**Note**: Instance will restart to apply the flag.
+
+**Issue**: Database authentication error: "Cloud SQL IAM service account authentication failed" (after IAM flag enabled)
+**Root Cause**: IAM database user doesn't exist or lacks PostgreSQL permissions
+**Solution**: Create IAM database user and grant permissions:
+```bash
+# Create IAM database user
+gcloud sql users create "<GCP_SA_EMAIL>" \
+  --instance=<INSTANCE_NAME> \
+  --type=CLOUD_IAM_SERVICE_ACCOUNT \
+  --project <PROJECT_ID>
+
+# Grant PostgreSQL permissions (connect using postgres user)
+# Method 1: Using kubectl with Cloud SQL Proxy pod
+kubectl run psql-client --rm -i --namespace=<NAMESPACE> \
+  --image=postgres:15-alpine \
+  --serviceaccount=<K8S_SA_NAME> \
+  --overrides='{"spec":{"containers":[{"name":"psql","image":"postgres:15-alpine","command":["sleep","3600"]},{"name":"cloud-sql-proxy","image":"gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.1.0","args":["<PROJECT_ID>:<REGION>:<INSTANCE_NAME>","--port=5432"],"securityContext":{"runAsNonRoot":true,"allowPrivilegeEscalation":false}}]}}'
+
+# Inside the pod:
+PGPASSWORD=<POSTGRES_PASSWORD> psql -h localhost -U postgres -d postgres -c "CREATE DATABASE baby_names;"
+PGPASSWORD=<POSTGRES_PASSWORD> psql -h localhost -U postgres -d baby_names <<EOF
+GRANT ALL PRIVILEGES ON DATABASE baby_names TO "<GCP_SA_EMAIL>";
+GRANT ALL ON SCHEMA public TO "<GCP_SA_EMAIL>";
+GRANT CREATE ON SCHEMA public TO "<GCP_SA_EMAIL>";
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "<GCP_SA_EMAIL>";
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "<GCP_SA_EMAIL>";
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO "<GCP_SA_EMAIL>";
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO "<GCP_SA_EMAIL>";
+EOF
+```
+
+**Issue**: Init containers stuck waiting for migration job to complete
+**Root Cause**: Migration job with Cloud SQL Proxy sidecar never reaches "Complete" status (sidecar doesn't exit)
+**Solution**: Update init containers to check migration pod container exit code instead of job completion, and create RBAC permissions:
+```bash
+# Create RBAC permissions for init containers
+kubectl create role migration-watcher --verb=get,list,watch --resource=pods,jobs -n <NAMESPACE>
+kubectl create rolebinding migration-watcher-binding \
+  --role=migration-watcher \
+  --serviceaccount=<NAMESPACE>:<SERVICE_ACCOUNT_NAME> \
+  -n <NAMESPACE>
+
+# Init containers now check: kubectl get pod $POD_NAME -o jsonpath='{.status.containerStatuses[?(@.name=="migration")].state.terminated.exitCode}'
+```
 
 ## Future Development
 

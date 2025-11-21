@@ -16,6 +16,7 @@ spec:
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
       restartPolicy: Never
+      shareProcessNamespace: true
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000
