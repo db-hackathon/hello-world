@@ -1,0 +1,57 @@
+# Test environment overrides for baby-names
+# These values override the defaults in values.yaml
+
+namespace:
+  create: false  # Namespace created by Terraform
+  name: baby-names-test
+
+serviceAccount:
+  create: false  # ServiceAccount created by Terraform
+  name: baby-names-test
+  annotations:
+    iam.gke.io/gcp-service-account: bn-test@extended-ascent-477308-m8.iam.gserviceaccount.com
+
+backend:
+  image:
+    tag: "main" # Using main tag for test deployment
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: baby_names
+    DB_USER: bn-test@extended-ascent-477308-m8.iam
+    DB_IAM_AUTH: "true"
+
+frontend:
+  image:
+    tag: "main"
+  env:
+    BACKEND_URL: http://baby-names-backend:5000
+
+migration:
+  image:
+    tag: "main"
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: baby_names
+    DB_USER: bn-test@extended-ascent-477308-m8.iam
+    DB_IAM_AUTH: "true"
+
+database:
+  instanceConnectionName: "extended-ascent-477308-m8:europe-west1:baby-names-test"
+  iamAuth: true
+
+ingress:
+  enabled: true
+  className: "gce"
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+  hosts:
+    - host: ""  # Will be auto-assigned by GCE ingress
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: frontend
+        - path: /api
+          pathType: Prefix
+          backend: backend
