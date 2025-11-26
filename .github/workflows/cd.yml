@@ -1,18 +1,32 @@
 name: CD
 
 on:
-  push:
-    branches: [ main ]
+  # Trigger after CI workflow completes successfully
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+  # Manual trigger with commit SHA selection
   workflow_dispatch:
     inputs:
+      commit_sha:
+        description: 'Commit SHA to deploy (uses images tagged main-{sha})'
+        required: true
+        type: string
       environment:
-        description: 'Environment to deploy to'
+        description: 'Target environment'
         required: true
         default: 'staging'
         type: choice
         options:
           - staging
           - production
+      dry_run:
+        description: 'Dry-run mode: validate workflow without deploying'
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -20,10 +34,117 @@ env:
   IMAGE_NAME_FRONTEND: ${{ github.repository }}/baby-names-frontend
 
 jobs:
+  # Resolve which SHA to deploy and validate images
+  resolve-sha:
+    name: Resolve Deployment SHA
+    runs-on: ubuntu-latest
+    # Skip if workflow_run triggered by failed CI
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      deploy_sha: ${{ steps.resolve.outputs.sha }}
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
+      is_dry_run: ${{ steps.resolve.outputs.is_dry_run }}
+      environment: ${{ steps.resolve.outputs.environment }}
+    steps:
+      - name: Resolve deployment SHA
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            SHA="${{ github.event.inputs.commit_sha }}"
+            IS_DRY_RUN="${{ github.event.inputs.dry_run }}"
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          else
+            # workflow_run trigger - use the SHA from the CI workflow
+            SHA="${{ github.event.workflow_run.head_sha }}"
+            IS_DRY_RUN="false"
+            ENVIRONMENT="staging"
+          fi
+
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "is_dry_run=${IS_DRY_RUN}" >> $GITHUB_OUTPUT
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+
+          echo "=========================================="
+          echo "Deployment Configuration"
+          echo "=========================================="
+          echo "Commit SHA: ${SHA}"
+          echo "Short SHA: ${SHA:0:7}"
+          echo "Environment: ${ENVIRONMENT}"
+          echo "Dry Run: ${IS_DRY_RUN}"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "=========================================="
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate images exist in registry
+        env:
+          DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          echo "Validating container images exist..."
+
+          BACKEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-backend:main-${DEPLOY_SHA}"
+          FRONTEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-frontend:main-${DEPLOY_SHA}"
+          MIGRATION_IMAGE="ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${DEPLOY_SHA}"
+
+          echo "Checking backend: ${BACKEND_IMAGE}"
+          docker manifest inspect "${BACKEND_IMAGE}" > /dev/null
+          echo "✅ Backend image exists"
+
+          echo "Checking frontend: ${FRONTEND_IMAGE}"
+          docker manifest inspect "${FRONTEND_IMAGE}" > /dev/null
+          echo "✅ Frontend image exists"
+
+          echo "Checking migration: ${MIGRATION_IMAGE}"
+          docker manifest inspect "${MIGRATION_IMAGE}" > /dev/null
+          echo "✅ Migration image exists"
+
+          echo ""
+          echo "=========================================="
+          echo "All images validated successfully!"
+          echo "=========================================="
+
+      - name: Dry-run summary
+        if: steps.resolve.outputs.is_dry_run == 'true'
+        run: |
+          echo "=========================================="
+          echo "DRY-RUN MODE - Deployment Plan"
+          echo "=========================================="
+          echo ""
+          echo "Would deploy the following:"
+          echo "  Commit: ${{ steps.resolve.outputs.sha }}"
+          echo "  Environment: ${{ steps.resolve.outputs.environment }}"
+          echo ""
+          echo "Images:"
+          echo "  Backend:   ghcr.io/${{ github.repository }}/baby-names-backend:main-${{ steps.resolve.outputs.sha }}"
+          echo "  Frontend:  ghcr.io/${{ github.repository }}/baby-names-frontend:main-${{ steps.resolve.outputs.sha }}"
+          echo "  Migration: ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${{ steps.resolve.outputs.sha }}"
+          echo ""
+          echo "Validation: ✅ All images exist in registry"
+          echo ""
+          echo "No actual deployment will be performed."
+          echo "=========================================="
+
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    needs: resolve-sha
+    # Run for: workflow_run (auto) OR workflow_dispatch with staging selected
+    # Skip for: dry-run mode OR production selected
+    if: >
+      needs.resolve-sha.outputs.is_dry_run != 'true' &&
+      (github.event_name == 'workflow_run' ||
+       (github.event_name == 'workflow_dispatch' && needs.resolve-sha.outputs.environment == 'staging'))
     environment:
       name: staging
       url: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
@@ -67,14 +188,16 @@ jobs:
 
       - name: Deploy with Helm
         working-directory: examples/baby-names/helm/baby-names
+        env:
+          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
         run: |
           helm upgrade --install baby-names . \
             --namespace baby-names-staging \
             --create-namespace \
             --values values-staging.yaml \
-            --set backend.image.tag=main-${{ github.sha }} \
-            --set frontend.image.tag=main-${{ github.sha }} \
-            --set migration.image.tag=main-${{ github.sha }} \
+            --set backend.image.tag=main-${DEPLOY_SHA} \
+            --set frontend.image.tag=main-${DEPLOY_SHA} \
+            --set migration.image.tag=main-${DEPLOY_SHA} \
             --wait \
             --timeout 15m
 
@@ -126,12 +249,15 @@ jobs:
           echo "=== Deployment verification complete ==="
 
       - name: Record deployment
+        env:
+          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
         run: |
           echo "Deployment to staging completed at $(date)"
-          echo "Git SHA: ${{ github.sha }}"
+          echo "Git SHA: ${DEPLOY_SHA}"
           echo "Actor: ${{ github.actor }}"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${DEPLOY_SHA}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${DEPLOY_SHA}"
 
   smoke-tests-staging:
     name: Smoke Tests (Staging)
@@ -196,8 +322,17 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: smoke-tests-staging
-    if: github.event.inputs.environment == 'production'
+    needs: [resolve-sha, smoke-tests-staging]
+    # Only manual production deployments
+    # Skip for: dry-run mode
+    # Uses always() to run even when staging is skipped (direct production deploy)
+    if: >
+      always() &&
+      needs.resolve-sha.result == 'success' &&
+      needs.resolve-sha.outputs.is_dry_run != 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      needs.resolve-sha.outputs.environment == 'production' &&
+      (needs.smoke-tests-staging.result == 'success' || needs.smoke-tests-staging.result == 'skipped')
     environment:
       name: production
       url: https://baby-names.example.com
@@ -216,13 +351,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull images
+        env:
+          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
         run: |
           echo "Pulling backend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${DEPLOY_SHA}"
           echo "Pulling frontend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${DEPLOY_SHA}"
 
       - name: Deploy to Production Kubernetes (Stubbed)
+        env:
+          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
         run: |
           echo "=========================================="
           echo "PRODUCTION DEPLOYMENT - CURRENTLY STUBBED"
@@ -232,15 +371,15 @@ jobs:
           echo "  1. Configure kubectl with production cluster credentials"
           echo "  2. Apply Kubernetes manifests with production configs"
           echo "  3. Perform blue-green or canary deployment"
-          echo "  4. Update image tags to: main-${{ github.sha }}"
+          echo "  4. Update image tags to: main-${DEPLOY_SHA}"
           echo "  5. Gradual traffic shift to new version"
           echo "  6. Monitor error rates and latency"
           echo "  7. Automatic rollback on failure"
           echo ""
           echo "Target cluster: production-k8s-cluster"
           echo "Namespace: baby-names-prod"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${{ github.sha }}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${{ github.sha }}"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${DEPLOY_SHA}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${DEPLOY_SHA}"
           echo ""
           echo "Production features:"
           echo "  - Multi-zone deployment for high availability"
@@ -252,10 +391,13 @@ jobs:
           echo "=========================================="
 
       - name: Record production deployment
+        env:
+          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
         run: |
           echo "Production deployment completed at $(date)"
-          echo "Git SHA: ${{ github.sha }}"
+          echo "Git SHA: ${DEPLOY_SHA}"
           echo "Actor: ${{ github.actor }}"
+          echo "Trigger: ${{ github.event_name }}"
           echo "Deployment requires manual approval via GitHub Environments"
 
   smoke-tests-production:
