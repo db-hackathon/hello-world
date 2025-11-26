@@ -3,13 +3,13 @@
 
 namespace:
   create: false  # Namespace created by Terraform
-  name: baby-names-test
+  name: baby-names-test3
 
 serviceAccount:
   create: false  # ServiceAccount created by Terraform
-  name: baby-names-test
+  name: baby-names-test3
   annotations:
-    iam.gke.io/gcp-service-account: bn-test@extended-ascent-477308-m8.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: bn-test3@extended-ascent-477308-m8.iam.gserviceaccount.com
 
 backend:
   image:
@@ -18,7 +18,7 @@ backend:
     DB_HOST: localhost
     DB_PORT: "5432"
     DB_NAME: baby_names
-    DB_USER: bn-test@extended-ascent-477308-m8.iam
+    DB_USER: bn-test3@extended-ascent-477308-m8.iam
     DB_IAM_AUTH: "true"
 
 frontend:
@@ -34,11 +34,11 @@ migration:
     DB_HOST: localhost
     DB_PORT: "5432"
     DB_NAME: baby_names
-    DB_USER: bn-test@extended-ascent-477308-m8.iam
+    DB_USER: bn-test3@extended-ascent-477308-m8.iam
     DB_IAM_AUTH: "true"
 
 database:
-  instanceConnectionName: "extended-ascent-477308-m8:europe-west1:baby-names-test"
+  instanceConnectionName: "extended-ascent-477308-m8:europe-west1:baby-names-test3"
   iamAuth: true
 
 ingress:

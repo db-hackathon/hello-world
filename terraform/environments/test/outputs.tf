@@ -112,14 +112,50 @@ output "database_bootstrap_completed" {
 output "helm_values" {
   description = "Values to use in Helm deployment"
   value = {
-    namespace     = module.k8s_namespace.namespace_name
-    database_host = "localhost" # via Cloud SQL Proxy
-    database_port = "5432"
-    database_name = module.cloudsql.database_name
-    database_user = module.database_bootstrap.iam_database_user
-    database_iam_auth = "true"
+    namespace                = module.k8s_namespace.namespace_name
+    service_account_name     = module.k8s_namespace.service_account_name
+    database_host            = "localhost" # via Cloud SQL Proxy
+    database_port            = "5432"
+    database_name            = module.cloudsql.database_name
+    database_user            = module.database_bootstrap.iam_database_user
+    database_iam_auth        = "true"
     instance_connection_name = module.cloudsql.instance_connection_name
   }
+}
+
+# Helm Values YAML (can be saved to file)
+output "helm_values_yaml" {
+  description = "Helm values in YAML format - save to values-terraform.yaml"
+  value       = <<-EOT
+# Auto-generated from Terraform outputs
+# Usage: terraform output -raw helm_values_yaml > values-terraform.yaml
+
+namespace:
+  name: ${module.k8s_namespace.namespace_name}
+
+serviceAccount:
+  name: ${module.k8s_namespace.service_account_name}
+
+backend:
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: ${module.cloudsql.database_name}
+    DB_USER: ${module.database_bootstrap.iam_database_user}
+    DB_IAM_AUTH: "true"
+
+migration:
+  env:
+    DB_HOST: localhost
+    DB_PORT: "5432"
+    DB_NAME: ${module.cloudsql.database_name}
+    DB_USER: ${module.database_bootstrap.iam_database_user}
+    DB_IAM_AUTH: "true"
+
+database:
+  instanceConnectionName: ${module.cloudsql.instance_connection_name}
+  iamAuth: true
+EOT
 }
 
 # Next Steps

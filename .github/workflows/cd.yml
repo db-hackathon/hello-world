@@ -76,13 +76,54 @@ jobs:
             --set frontend.image.tag=main-${{ github.sha }} \
             --set migration.image.tag=main-${{ github.sha }} \
             --wait \
-            --timeout 10m
+            --timeout 15m
 
       - name: Verify deployment
         run: |
+          echo "=== Verifying deployment rollout ==="
+
+          # Wait for deployments to be ready (with timeout)
+          echo "Waiting for backend deployment..."
+          kubectl rollout status deployment/baby-names-backend -n baby-names-staging --timeout=5m
+
+          echo "Waiting for frontend deployment..."
+          kubectl rollout status deployment/baby-names-frontend -n baby-names-staging --timeout=5m
+
+          # Verify all pods are running
+          echo "=== Pod Status ==="
           kubectl get pods -n baby-names-staging
+
+          # Check that no pods are in error state
+          FAILED_PODS=$(kubectl get pods -n baby-names-staging --field-selector=status.phase!=Running,status.phase!=Succeeded -o name 2>/dev/null | wc -l)
+          if [ "$FAILED_PODS" -gt 0 ]; then
+            echo "ERROR: Found $FAILED_PODS pods not in Running/Succeeded state"
+            kubectl get pods -n baby-names-staging --field-selector=status.phase!=Running,status.phase!=Succeeded
+            exit 1
+          fi
+
+          echo "=== Service Status ==="
           kubectl get services -n baby-names-staging
+
+          echo "=== Ingress Status ==="
           kubectl get ingress -n baby-names-staging
+
+          # Wait for ingress IP (with timeout)
+          echo "Waiting for ingress IP assignment..."
+          for i in {1..30}; do
+            INGRESS_IP=$(kubectl get ingress baby-names -n baby-names-staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            if [ -n "$INGRESS_IP" ]; then
+              echo "Ingress IP assigned: $INGRESS_IP"
+              break
+            fi
+            echo "Attempt $i: No ingress IP yet, waiting 10s..."
+            sleep 10
+          done
+
+          if [ -z "$INGRESS_IP" ]; then
+            echo "WARNING: Ingress IP not assigned within timeout (smoke tests may fail)"
+          fi
+
+          echo "=== Deployment verification complete ==="
 
       - name: Record deployment
         run: |

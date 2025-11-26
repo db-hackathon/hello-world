@@ -6,16 +6,14 @@ nameOverride: ""
 fullnameOverride: ""
 
 # Namespace configuration
+# NOTE: Namespace is created by Terraform, not Helm
 namespace:
-  create: true
-  name: baby-names
+  name: baby-names  # Must match Terraform-created namespace
 
 # Service account configuration
+# NOTE: ServiceAccount is created by Terraform with Workload Identity binding
 serviceAccount:
-  create: true
-  name: baby-names-app
-  annotations: {}
-    # iam.gke.io/gcp-service-account: SERVICE_ACCOUNT@PROJECT_ID.iam.gserviceaccount.com
+  name: baby-names-app  # Must match Terraform-created service account
 
 # Backend configuration
 backend:
@@ -39,6 +37,7 @@ backend:
     DB_PORT: "5432"
     DB_NAME: baby_names
     DB_USER: "" # Set in environment-specific values
+    DB_PASSWORD: "" # Set in environment-specific values (not used with IAM auth)
     DB_IAM_AUTH: "false"
   securityContext:
     runAsNonRoot: true

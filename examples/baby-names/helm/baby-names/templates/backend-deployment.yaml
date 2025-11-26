@@ -75,6 +75,10 @@ spec:
           value: "{{ .Values.backend.env.DB_USER }}"
         - name: DB_IAM_AUTH
           value: "{{ .Values.backend.env.DB_IAM_AUTH }}"
+        {{- if and .Values.backend.env.DB_PASSWORD (ne (toString .Values.backend.env.DB_IAM_AUTH) "true") }}
+        - name: DB_PASSWORD
+          value: "{{ .Values.backend.env.DB_PASSWORD }}"
+        {{- end }}
         livenessProbe:
           httpGet:
             path: /health

@@ -1,14 +1,12 @@
 # Staging environment overrides for baby-names
 # These values override the defaults in values.yaml
+# NOTE: Namespace and ServiceAccount are created by Terraform
 
 namespace:
-  create: false  # Namespace created by helm --create-namespace flag to avoid ordering issues
   name: baby-names-staging
 
 serviceAccount:
   name: baby-names-staging
-  annotations:
-    iam.gke.io/gcp-service-account: hello-world-staging@extended-ascent-477308-m8.iam.gserviceaccount.com
 
 backend:
   image:

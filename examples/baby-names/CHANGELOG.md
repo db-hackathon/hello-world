@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Terraform modules for GKE infrastructure (`terraform/modules/`)
+  - `gcp-project-setup`: GCP APIs and Cloud NAT configuration
+  - `gke-autopilot`: GKE Autopilot cluster provisioning
+  - `gcp-service-account`: Service account with Workload Identity binding
+  - `cloudsql`: CloudSQL PostgreSQL instance with IAM authentication
+  - `k8s-namespace`: Kubernetes namespace, ServiceAccount, RBAC, and secrets
+  - `database-bootstrap`: Database permissions setup via temporary pod
+- Terraform environment configurations (`terraform/environments/`)
+  - Staging and test environment configurations
+  - Modular design with clear dependency chain
+  - `helm_values_yaml` output for generating Helm values from Terraform
+- Clear Terraform/Helm resource ownership separation
+  - Terraform owns all prerequisite resources (Namespace, ServiceAccount, RBAC, Secrets)
+  - Helm owns only application workloads (Deployments, Services, Job, Ingress)
+  - Eliminates resource conflicts during deployment
+- Migration job race condition fix
+  - Added wait loop for Cloud SQL Proxy readiness before running Liquibase
+  - Polls localhost:5432 up to 60 times (2s intervals) before proceeding
+  - Prevents "connection refused" errors when proxy hasn't started yet
 - Comprehensive three-phase CI pipeline with fail-fast quality gates
   - Phase A: Sequential quality checks (format, lint, security, tests)
   - Phase B: Parallel container build, scan, and attestation
@@ -76,6 +95,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All tests runnable without live database connection
 
 ### Changed
+- **BREAKING**: Removed overlapping Helm templates in favor of Terraform
+  - Deleted `helm/baby-names/templates/namespace.yaml` (Terraform creates namespace)
+  - Deleted `helm/baby-names/templates/serviceaccount.yaml` (Terraform creates SA with Workload Identity)
+  - Removed `namespace.create` and `serviceAccount.create` flags from values.yaml
+  - Helm now references Terraform-created resources by name only
 - **BREAKING**: Migrated from Debian to Alpine Linux base images
   - Backend: `python:3.11-alpine` (from `python:3.11-slim`)
   - Frontend: `python:3.11-alpine` (from `python:3.11-slim`)
@@ -157,6 +181,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Works around Kubernetes Jobs with sidecars limitation (cloud-sql-proxy never exits)
   - Checks for migration container exit code 0 instead of job condition=complete
   - Added fallback timeout to proceed if migration pod not found (database already migrated)
+- GKE Autopilot deployment timing issues
+  - Increased Terraform bootstrap timeout from 300s to 600s for node scaling
+  - Increased Helm deployment timeout from 10m to 15m for rate limiting resilience
+  - GKE Autopilot nodes scale on-demand, requiring longer initial deployment timeouts
+- Enhanced CD verification step
+  - Added `kubectl rollout status` checks for deployments
+  - Added pod health validation (fails if pods not Running/Succeeded)
+  - Added ingress IP assignment wait loop (up to 5 minutes)
+  - Provides clear status output for debugging deployment issues
+- DB_PASSWORD environment variable not passed to backend container
+  - Added conditional DB_PASSWORD handling in `backend-deployment.yaml`
+  - Matches existing pattern in `migration-job.yaml`
+  - Uses `toString` for type-safe comparison with DB_IAM_AUTH
+  - Enables password-based authentication for non-IAM deployments
 
 ### Security
 - Container images now scan clean for CRITICAL vulnerabilities

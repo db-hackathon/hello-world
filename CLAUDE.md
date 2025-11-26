@@ -136,9 +136,9 @@ pytest tests/ -v --cov=. --cov-report=term
 cd examples/baby-names/helm/baby-names
 
 # Deploy to GKE with IAM database authentication
+# NOTE: Namespace and ServiceAccount are created by Terraform (not Helm)
 helm upgrade --install baby-names . \
   --namespace baby-names-staging \
-  --create-namespace \
   --values values-staging.yaml \
   --set backend.image.tag=main-abc123 \
   --set frontend.image.tag=main-abc123 \
@@ -157,6 +157,7 @@ kubectl get ingress -n baby-names-staging
 - **Health Probes**: Liveness and readiness checks for both services
 - **Ingress**: GCE ingress controller for external access
 - **Environment-specific values**: Separate values files for staging/production
+- **Terraform Integration**: Namespace, ServiceAccount, RBAC, and secrets created by Terraform
 
 ## CI/CD Pipelines
 
@@ -327,6 +328,104 @@ IDP products are composable infrastructure components:
 - Managed with Terraform
 - Outputs can be consumed by other products or applications
 - Follow the existing structure in `products/k8s-cluster/`
+
+## Terraform Infrastructure
+
+### GCP Infrastructure for Baby-Names Application
+
+**Location**: `terraform/`
+
+The baby-names application infrastructure is managed by Terraform modules for GCP and Kubernetes resources.
+
+**Module Structure**:
+```
+terraform/
+├── modules/
+│   ├── gcp-project-setup/      # APIs, Cloud NAT
+│   ├── gke-autopilot/          # GKE cluster
+│   ├── gcp-service-account/    # Service account, IAM
+│   ├── cloudsql/               # PostgreSQL instance
+│   ├── k8s-namespace/          # Namespace, RBAC, secrets
+│   └── database-bootstrap/     # PostgreSQL permissions
+└── environments/
+    └── staging/                # Staging environment config
+```
+
+**Key Features**:
+- **Modular Design**: Six reusable Terraform modules
+- **GKE Autopilot**: Managed Kubernetes with autoscaling
+- **CloudSQL IAM Auth**: Passwordless database authentication
+- **Workload Identity**: Secure GCP access for pods
+- **Database Bootstrap**: Automated PostgreSQL permission setup
+
+**Provisioning Time**: 20-30 minutes (GKE cluster takes longest)
+
+**Quick Start**:
+```bash
+# Prerequisites: Complete Terraform Executor Service Account setup
+# See: terraform/docs/TERRAFORM_EXECUTOR_SETUP.md
+
+cd terraform/environments/staging
+
+# Configure Terraform Cloud backend
+# Edit backend.tf with your organization name
+
+# Initialize and apply
+terraform login
+terraform init
+terraform plan
+terraform apply
+
+# Get cluster credentials
+terraform output -raw get_credentials_command | bash
+
+# Deploy application
+cd /home/sweeand/hello-world/examples/baby-names/helm/baby-names
+helm upgrade --install baby-names . \
+  --namespace baby-names-staging \
+  --values values-staging.yaml \
+  --wait --timeout 15m
+```
+
+**Documentation**:
+- [Terraform Modules README](../terraform/README.md) - Overview of all modules
+- [Terraform Executor Setup](../terraform/docs/TERRAFORM_EXECUTOR_SETUP.md) - Service account configuration
+- [Provisioning Guide](../terraform/docs/PROVISIONING_GUIDE.md) - Step-by-step infrastructure setup
+
+**Resources Created**:
+- GKE Autopilot cluster (regional, private nodes)
+- CloudSQL PostgreSQL 17 instance
+- Cloud NAT (for private cluster egress)
+- GCP Service Account (with Workload Identity)
+- Kubernetes namespace, ServiceAccount, RBAC
+- ImagePullSecret for ghcr.io
+- Database permissions via temporary pod
+
+**Critical Configuration**:
+- **CloudSQL IAM Auth Flag**: `cloudsql.iam_authentication=on` (MANDATORY, triggers restart)
+- **Workload Identity**: Two-way binding between K8s SA and GCP SA
+- **Database Permissions**: Granted via Terraform (not Liquibase, due to chicken-and-egg)
+- **Private Cluster**: Requires Cloud NAT for container registry access
+
+**Estimated Monthly Cost** (Staging):
+- GKE Autopilot: ~$70-120
+- CloudSQL: ~$100-150
+- Cloud NAT: ~$45-60
+- Ingress: ~$18-25
+- **Total**: ~$233-355/month
+
+**Infrastructure vs Application** (Clear Separation):
+- **Terraform Creates**: GCP infrastructure + K8s prerequisites (Namespace, ServiceAccount, RBAC, ImagePullSecret)
+- **Helm Creates**: Application workloads only (Deployments, Services, Jobs, Ingress)
+- **No Overlap**: Helm does NOT create Namespace or ServiceAccount - Terraform owns these
+- **CD Pipeline**: Handles Helm deployments via GitHub Actions
+- **Terraform Output**: Use `terraform output -raw helm_values_yaml` to generate Helm values
+
+**Next Steps After Terraform**:
+1. Terraform provisions infrastructure (this section)
+2. Helm deploys application containers
+3. Liquibase runs database migrations
+4. Application is accessible via ingress
 
 ## Known Issues and Fixes
 

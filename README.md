@@ -125,15 +125,21 @@ docker-compose down -v
 
 **GKE Deployment:**
 
-The application can be deployed to Google Kubernetes Engine (GKE) using the included Helm chart:
+The application can be deployed to Google Kubernetes Engine (GKE) using the included Helm chart.
 
+**Prerequisites:** Terraform must create the namespace, ServiceAccount, RBAC, and secrets first:
+```bash
+cd terraform/environments/staging
+terraform apply
+```
+
+**Deploy with Helm:**
 ```bash
 cd examples/baby-names/helm/baby-names
 
-# Deploy to staging
+# Deploy to staging (namespace created by Terraform)
 helm upgrade --install baby-names . \
   --namespace baby-names-staging \
-  --create-namespace \
   --values values-staging.yaml \
   --set backend.image.tag=main-abc123 \
   --set frontend.image.tag=main-abc123 \
@@ -145,10 +151,11 @@ kubectl get ingress -n baby-names-staging
 ```
 
 **Deployment Features:**
+- **Terraform/Helm Separation**: Clear resource ownership - Terraform creates prerequisites (Namespace, ServiceAccount, RBAC, Secrets), Helm deploys only application workloads
 - **IAM Database Authentication**: No passwords required, uses Google Cloud IAM
 - **Cloud SQL Proxy**: Automatic sidecar for secure database connections
 - **Workload Identity**: GKE pods authenticate to GCP services via service accounts
-- **Automated Migrations**: Helm hooks run Liquibase migrations before deployment
+- **Automated Migrations**: Liquibase migrations run via init job before deployment
 - **Health Checks**: Liveness and readiness probes for both frontend and backend
 - **Ingress**: GCE ingress controller for external access
 

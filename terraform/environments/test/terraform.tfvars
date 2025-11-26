@@ -17,8 +17,8 @@ nat_router_name = "nat-router"  # Reference to existing NAT router from staging
 nat_config_name = "nat-config"  # Reference to existing NAT config from staging
 
 # GKE Cluster Configuration
-cluster_name              = "baby-names-test"      # Different from staging (hellow-world-manual)
-master_ipv4_cidr_block    = "172.16.1.0/28"        # Different CIDR from staging
+cluster_name              = "baby-names-test3"     # Different from staging (hellow-world-manual)
+master_ipv4_cidr_block    = "172.16.2.0/28"        # Different CIDR from staging and test
 release_channel           = "REGULAR"
 maintenance_start_time    = "03:00"
 cluster_deletion_protection = false  # Easier to destroy for testing
@@ -34,11 +34,11 @@ cluster_labels = {
 }
 
 # GCP Service Account Configuration
-gcp_service_account_id           = "bn-test"  # Shortened to fit CloudSQL 63-char limit
-gcp_service_account_display_name = "Baby Names Application - Test"
+gcp_service_account_id           = "bn-test3"  # Shortened to fit CloudSQL 63-char limit
+gcp_service_account_display_name = "Baby Names Application - Test3"
 
 # CloudSQL Configuration
-cloudsql_instance_name      = "baby-names-test"       # Different from staging
+cloudsql_instance_name      = "baby-names-test3"      # Different from staging and test
 database_version            = "POSTGRES_17"
 cloudsql_tier               = "db-custom-1-3840"      # Smaller tier for testing (1 vCPU, 3.75GB)
 cloudsql_availability_type  = "ZONAL"
@@ -60,9 +60,9 @@ require_ssl      = false  # IAM auth provides security
 authorized_networks = []
 
 # Kubernetes Namespace Configuration
-namespace                = "baby-names-test"  # Different from staging
+namespace                = "baby-names-test3"  # Different from staging and test
 create_namespace         = true
-k8s_service_account_name = "baby-names-test"  # Different from staging
+k8s_service_account_name = "baby-names-test3"  # Different from staging and test
 
 namespace_labels = {
   environment = "test"
@@ -79,5 +79,5 @@ registry_server   = "ghcr.io"
 registry_email    = "noreply@github.com"
 
 # Database Bootstrap Configuration
-bootstrap_pod_name       = "psql-client-terraform-test"
-bootstrap_timeout_seconds = 300
+bootstrap_pod_name       = "psql-client-terraform-test3"
+bootstrap_timeout_seconds = 600  # Increased from 300s for GKE Autopilot node scaling
