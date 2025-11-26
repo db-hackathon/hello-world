@@ -89,13 +89,14 @@ jobs:
 
       - name: Validate images exist in registry
         env:
-          DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
+          # Use short SHA (7 chars) to match CI's docker/metadata-action tag format
+          SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
         run: |
           echo "Validating container images exist..."
 
-          BACKEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-backend:main-${DEPLOY_SHA}"
-          FRONTEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-frontend:main-${DEPLOY_SHA}"
-          MIGRATION_IMAGE="ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${DEPLOY_SHA}"
+          BACKEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-backend:main-${SHORT_SHA}"
+          FRONTEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-frontend:main-${SHORT_SHA}"
+          MIGRATION_IMAGE="ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${SHORT_SHA}"
 
           echo "Checking backend: ${BACKEND_IMAGE}"
           docker manifest inspect "${BACKEND_IMAGE}" > /dev/null
@@ -116,6 +117,8 @@ jobs:
 
       - name: Dry-run summary
         if: steps.resolve.outputs.is_dry_run == 'true'
+        env:
+          SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
         run: |
           echo "=========================================="
           echo "DRY-RUN MODE - Deployment Plan"
@@ -123,12 +126,13 @@ jobs:
           echo ""
           echo "Would deploy the following:"
           echo "  Commit: ${{ steps.resolve.outputs.sha }}"
+          echo "  Short SHA: ${SHORT_SHA}"
           echo "  Environment: ${{ steps.resolve.outputs.environment }}"
           echo ""
-          echo "Images:"
-          echo "  Backend:   ghcr.io/${{ github.repository }}/baby-names-backend:main-${{ steps.resolve.outputs.sha }}"
-          echo "  Frontend:  ghcr.io/${{ github.repository }}/baby-names-frontend:main-${{ steps.resolve.outputs.sha }}"
-          echo "  Migration: ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${{ steps.resolve.outputs.sha }}"
+          echo "Images (using short SHA tag):"
+          echo "  Backend:   ghcr.io/${{ github.repository }}/baby-names-backend:main-${SHORT_SHA}"
+          echo "  Frontend:  ghcr.io/${{ github.repository }}/baby-names-frontend:main-${SHORT_SHA}"
+          echo "  Migration: ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${SHORT_SHA}"
           echo ""
           echo "Validation: ✅ All images exist in registry"
           echo ""
@@ -189,15 +193,16 @@ jobs:
       - name: Deploy with Helm
         working-directory: examples/baby-names/helm/baby-names
         env:
-          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
+          # Use short SHA to match CI's docker/metadata-action tag format
+          SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
           helm upgrade --install baby-names . \
             --namespace baby-names-staging \
             --create-namespace \
             --values values-staging.yaml \
-            --set backend.image.tag=main-${DEPLOY_SHA} \
-            --set frontend.image.tag=main-${DEPLOY_SHA} \
-            --set migration.image.tag=main-${DEPLOY_SHA} \
+            --set backend.image.tag=main-${SHORT_SHA} \
+            --set frontend.image.tag=main-${SHORT_SHA} \
+            --set migration.image.tag=main-${SHORT_SHA} \
             --wait \
             --timeout 15m
 
@@ -251,13 +256,14 @@ jobs:
       - name: Record deployment
         env:
           DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
+          SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
           echo "Deployment to staging completed at $(date)"
           echo "Git SHA: ${DEPLOY_SHA}"
           echo "Actor: ${{ github.actor }}"
           echo "Trigger: ${{ github.event_name }}"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${DEPLOY_SHA}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${DEPLOY_SHA}"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${SHORT_SHA}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${SHORT_SHA}"
 
   smoke-tests-staging:
     name: Smoke Tests (Staging)
@@ -352,16 +358,17 @@ jobs:
 
       - name: Pull images
         env:
-          DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
+          SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
           echo "Pulling backend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${DEPLOY_SHA}"
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${SHORT_SHA}"
           echo "Pulling frontend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${DEPLOY_SHA}"
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${SHORT_SHA}"
 
       - name: Deploy to Production Kubernetes (Stubbed)
         env:
           DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
+          SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
           echo "=========================================="
           echo "PRODUCTION DEPLOYMENT - CURRENTLY STUBBED"
@@ -371,15 +378,15 @@ jobs:
           echo "  1. Configure kubectl with production cluster credentials"
           echo "  2. Apply Kubernetes manifests with production configs"
           echo "  3. Perform blue-green or canary deployment"
-          echo "  4. Update image tags to: main-${DEPLOY_SHA}"
+          echo "  4. Update image tags to: main-${SHORT_SHA}"
           echo "  5. Gradual traffic shift to new version"
           echo "  6. Monitor error rates and latency"
           echo "  7. Automatic rollback on failure"
           echo ""
           echo "Target cluster: production-k8s-cluster"
           echo "Namespace: baby-names-prod"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${DEPLOY_SHA}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${DEPLOY_SHA}"
+          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${SHORT_SHA}"
+          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${SHORT_SHA}"
           echo ""
           echo "Production features:"
           echo "  - Multi-zone deployment for high availability"
@@ -393,9 +400,11 @@ jobs:
       - name: Record production deployment
         env:
           DEPLOY_SHA: ${{ needs.resolve-sha.outputs.deploy_sha }}
+          SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
           echo "Production deployment completed at $(date)"
           echo "Git SHA: ${DEPLOY_SHA}"
+          echo "Image tag: main-${SHORT_SHA}"
           echo "Actor: ${{ github.actor }}"
           echo "Trigger: ${{ github.event_name }}"
           echo "Deployment requires manual approval via GitHub Environments"
