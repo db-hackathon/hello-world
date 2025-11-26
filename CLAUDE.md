@@ -211,17 +211,60 @@ Three-phase pipeline with comprehensive attestations:
 
 ### CD Pipeline (`.github/workflows/cd.yml`)
 
-**Deployment to Staging** (automated on push to main):
+**Triggers**:
+- **Automatic**: Triggers after CI workflow completes successfully on `main` branch (via `workflow_run`)
+- **Manual**: Via `workflow_dispatch` with inputs for commit SHA, environment, and dry-run mode
+
+**Manual Deployment**:
+```bash
+# Dry-run: validate images exist without deploying
+gh workflow run cd.yml \
+  --field commit_sha=<full-40-char-sha> \
+  --field environment=staging \
+  --field dry_run=true
+
+# Actual deployment to staging
+gh workflow run cd.yml \
+  --field commit_sha=<full-40-char-sha> \
+  --field environment=staging \
+  --field dry_run=false
+
+# Production deployment (manual only)
+gh workflow run cd.yml \
+  --field commit_sha=<full-40-char-sha> \
+  --field environment=production \
+  --field dry_run=false
+```
+
+**Workflow Jobs**:
+1. **resolve-sha**: Determines deployment SHA and validates images exist
+   - Extracts SHA from CI workflow run or manual input
+   - Validates all 3 container images exist in ghcr.io registry
+   - Outputs dry-run summary when enabled
+2. **deploy-staging**: Deploys to GKE staging environment
+   - Runs automatically after CI success OR on manual staging trigger
+   - Skipped in dry-run mode
+3. **smoke-tests-staging**: Verifies deployment health
+4. **deploy-production**: Deploys to production (manual trigger only, stubbed)
+5. **smoke-tests-production**: Production health verification (stubbed)
+
+**Deployment to Staging** (automated after CI success):
 1. **Authentication**: Direct Workload Identity Federation (WIF) to GCP
    - Uses GitHub OIDC tokens (no service account keys)
-   - Workload Identity Provider: `projects/254825841253/locations/global/workloadIdentityPools/github-actions/providers/github-oidc`
+   - Workload Identity Provider: `projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023`
 2. **GKE Access**: Install gke-gcloud-auth-plugin and get cluster credentials
-3. **Helm Deployment**: Deploy using `values-staging.yaml` with commit SHA as image tag
+3. **Helm Deployment**: Deploy using `values-staging.yaml` with short SHA image tag (e.g., `main-817993c`)
 4. **Health Verification**: Check pod, service, and ingress status
 5. **Smoke Tests**:
    - Frontend health endpoint
    - Backend health endpoint (via frontend proxy)
    - Critical user path (name lookup)
+
+**Dry-Run Mode**:
+- Validates all container images exist in registry
+- Shows deployment plan (commit SHA, environment, image tags)
+- Skips actual Helm deployment and smoke tests
+- Useful for validating workflow changes without affecting environments
 
 **Security Features**:
 - **Direct WIF**: Short-lived GitHub OIDC tokens, no long-lived credentials

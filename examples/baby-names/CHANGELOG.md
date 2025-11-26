@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- CD workflow triggered by CI completion instead of push events
+  - Uses `workflow_run` trigger to wait for CI workflow success
+  - Eliminates race condition where CD tried to deploy before CI built images
+  - Automatic staging deployment only occurs after CI passes all quality gates
+- Manual CD deployment with commit SHA selection
+  - `workflow_dispatch` trigger with `commit_sha`, `environment`, and `dry_run` inputs
+  - Enables deploying specific commits to staging or production
+  - Supports both staging and production environment selection
+- Dry-run mode for CD workflow validation
+  - Validates all container images exist in registry without deploying
+  - Shows deployment plan (commit SHA, environment, image tags)
+  - Permanent feature for testing workflow changes safely
+- CI workflow multi-tag push for container images
+  - Now pushes both `main` and `main-{short_sha}` tags (e.g., `main-817993c`)
+  - Enables CD to deploy specific commits using SHA-based tags
+  - Previously only pushed `main` tag, causing CD deployment failures
+- Image validation step in CD workflow
+  - Uses `docker manifest inspect` to verify all 3 images exist before deployment
+  - Fails fast if images are missing, preventing partial deployments
 - Terraform modules for GKE infrastructure (`terraform/modules/`)
   - `gcp-project-setup`: GCP APIs and Cloud NAT configuration
   - `gke-autopilot`: GKE Autopilot cluster provisioning
@@ -95,6 +114,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All tests runnable without live database connection
 
 ### Changed
+- CD workflow trigger mechanism
+  - Changed from `push` trigger to `workflow_run` trigger
+  - CD now waits for CI to complete successfully before deploying
+  - Prevents deployment of images that haven't been built yet
+- CD workflow image tag format
+  - Changed from full SHA (`main-{40-char-sha}`) to short SHA (`main-{7-char-sha}`)
+  - Matches CI's `docker/metadata-action` tag format
+  - Example: `main-817993c` instead of `main-817993c0410ab83e7d34e2ac5fdd2a5e38c19e05`
 - **BREAKING**: Removed overlapping Helm templates in favor of Terraform
   - Deleted `helm/baby-names/templates/namespace.yaml` (Terraform creates namespace)
   - Deleted `helm/baby-names/templates/serviceaccount.yaml` (Terraform creates SA with Workload Identity)
@@ -128,6 +155,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Test suite now uses `requests.exceptions.ConnectionError` instead of generic Exception
 
 ### Fixed
+- CI workflow only pushing first image tag to registry
+  - Previously used `head -n1` to select only first tag from metadata-action output
+  - Now iterates through all tags and pushes each one
+  - Fixes CD workflow failures when deploying with SHA-based image tags
+- CD workflow race condition with CI
+  - Previously both CI and CD triggered on push to main simultaneously
+  - CD would try to deploy images before CI finished building them
+  - Fixed by changing CD trigger to `workflow_run` (waits for CI completion)
 - Unit tests no longer require running PostgreSQL instance
 - Import sorting issues detected by Ruff
 - Module-level database instantiation now properly mocked during tests
