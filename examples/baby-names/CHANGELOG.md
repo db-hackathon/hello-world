@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replace 30-iteration bash polling loop with `kubectl wait` for ingress IP
   - Remove arbitrary `sleep 60` in smoke tests (curl retries handle readiness)
   - Reference GCP project, cluster, and URL from env vars instead of hardcoded values
+  - Remove unused checkout, Python setup, and pip install from smoke test jobs (tests use curl only)
 
 ### Added
 - CD workflow triggered by CI completion instead of push events
