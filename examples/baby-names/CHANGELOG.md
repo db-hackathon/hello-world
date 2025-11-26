@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- CD workflow security hardening following GitHub Actions best practices
+  - Pin all third-party actions to full SHA for supply chain security
+  - Add workflow-level `permissions: contents: read` default
+  - Add `permissions: {}` to smoke test jobs (external HTTP only)
+  - Replace `always()` with `!cancelled()` in deploy-production condition
+- CD workflow script injection prevention
+  - Use intermediate environment variables for untrusted workflow inputs
+  - Prevents shell injection via `commit_sha`, `dry_run`, and `environment` inputs
+- CD workflow simplification and maintainability
+  - Consolidate GCP configuration, URLs, and image names in workflow-level env vars
+  - Replace 30-iteration bash polling loop with `kubectl wait` for ingress IP
+  - Remove arbitrary `sleep 60` in smoke tests (curl retries handle readiness)
+  - Reference GCP project, cluster, and URL from env vars instead of hardcoded values
+
 ### Added
 - CD workflow triggered by CI completion instead of push events
   - Uses `workflow_run` trigger to wait for CI workflow success

@@ -1,5 +1,10 @@
 name: CD
 
+# Security: Restrict default permissions (GitHub Security Best Practice)
+# Reference: https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+permissions:
+  contents: read
+
 on:
   # Trigger after CI workflow completes successfully
   workflow_run:
@@ -29,9 +34,18 @@ on:
         default: false
 
 env:
+  # Container Registry
   REGISTRY: ghcr.io
   IMAGE_NAME_BACKEND: ${{ github.repository }}/baby-names-backend
   IMAGE_NAME_FRONTEND: ${{ github.repository }}/baby-names-frontend
+  IMAGE_NAME_MIGRATION: ${{ github.repository }}/baby-names-db-migration
+  # GCP Configuration
+  GCP_PROJECT_ID: extended-ascent-477308-m8
+  GCP_REGION: europe-west1
+  GKE_CLUSTER: hellow-world-manual
+  WORKLOAD_IDENTITY_PROVIDER: projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023
+  # Environment URLs
+  STAGING_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
 
 jobs:
   # Resolve which SHA to deploy and validate images
@@ -53,14 +67,21 @@ jobs:
     steps:
       - name: Resolve deployment SHA
         id: resolve
+        # Security: Use env vars for untrusted inputs (prevents script injection)
+        env:
+          INPUT_COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            SHA="${{ github.event.inputs.commit_sha }}"
-            IS_DRY_RUN="${{ github.event.inputs.dry_run }}"
-            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          if [ "${EVENT_NAME}" == "workflow_dispatch" ]; then
+            SHA="${INPUT_COMMIT_SHA}"
+            IS_DRY_RUN="${INPUT_DRY_RUN}"
+            ENVIRONMENT="${INPUT_ENVIRONMENT}"
           else
             # workflow_run trigger - use the SHA from the CI workflow
-            SHA="${{ github.event.workflow_run.head_sha }}"
+            SHA="${WORKFLOW_RUN_SHA}"
             IS_DRY_RUN="false"
             ENVIRONMENT="staging"
           fi
@@ -77,11 +98,11 @@ jobs:
           echo "Short SHA: ${SHA:0:7}"
           echo "Environment: ${ENVIRONMENT}"
           echo "Dry Run: ${IS_DRY_RUN}"
-          echo "Trigger: ${{ github.event_name }}"
+          echo "Trigger: ${EVENT_NAME}"
           echo "=========================================="
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -151,22 +172,22 @@ jobs:
        (github.event_name == 'workflow_dispatch' && needs.resolve-sha.outputs.environment == 'staging'))
     environment:
       name: staging
-      url: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+      url: ${{ env.STAGING_URL }}
     permissions:
       contents: read
       packages: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Authenticate to Google Cloud (Direct WIF)
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@6fc4af4b145ae7821d527454aa9bd537d1f2dc5f  # v2.1.8
         with:
-          project_id: extended-ascent-477308-m8
-          workload_identity_provider: projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f  # v2.1.4
 
       - name: Install gke-gcloud-auth-plugin
         run: |
@@ -174,17 +195,17 @@ jobs:
 
       - name: Get GKE credentials
         run: |
-          gcloud container clusters get-credentials hellow-world-manual \
-            --region=europe-west1 \
-            --project=extended-ascent-477308-m8
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT_ID }}
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112  # v4.3.0
         with:
           version: '3.13.0'
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -235,19 +256,14 @@ jobs:
           echo "=== Ingress Status ==="
           kubectl get ingress -n baby-names-staging
 
-          # Wait for ingress IP (with timeout)
+          # Wait for ingress IP using kubectl wait (more reliable than polling loop)
           echo "Waiting for ingress IP assignment..."
-          for i in {1..30}; do
-            INGRESS_IP=$(kubectl get ingress baby-names -n baby-names-staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-            if [ -n "$INGRESS_IP" ]; then
-              echo "Ingress IP assigned: $INGRESS_IP"
-              break
-            fi
-            echo "Attempt $i: No ingress IP yet, waiting 10s..."
-            sleep 10
-          done
-
-          if [ -z "$INGRESS_IP" ]; then
+          if kubectl wait --for=jsonpath='{.status.loadBalancer.ingress[0].ip}' \
+               ingress/baby-names -n baby-names-staging --timeout=300s 2>/dev/null; then
+            INGRESS_IP=$(kubectl get ingress baby-names -n baby-names-staging \
+                         -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            echo "Ingress IP assigned: $INGRESS_IP"
+          else
             echo "WARNING: Ingress IP not assigned within timeout (smoke tests may fail)"
           fi
 
@@ -270,11 +286,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy-staging
     environment: staging
+    permissions: {}  # No GitHub permissions needed - external HTTP only
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: '3.11'
 
@@ -282,31 +299,22 @@ jobs:
         run: |
           pip install pytest requests
 
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for services to be fully ready..."
-          sleep 60
+      # Note: Removed arbitrary sleep - curl retries handle service readiness
 
       - name: Test frontend health endpoint
-        env:
-          FRONTEND_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
         run: |
-          echo "Testing frontend health at $FRONTEND_URL/health"
-          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "$FRONTEND_URL/health"
+          echo "Testing frontend health at ${{ env.STAGING_URL }}/health"
+          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "${{ env.STAGING_URL }}/health"
 
       - name: Test backend health endpoint (via frontend proxy)
-        env:
-          FRONTEND_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
         run: |
-          echo "Testing backend health via $FRONTEND_URL/api/health"
-          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "$FRONTEND_URL/api/health"
+          echo "Testing backend health via ${{ env.STAGING_URL }}/api/health"
+          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "${{ env.STAGING_URL }}/api/health"
 
       - name: Test critical user path
-        env:
-          FRONTEND_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
         run: |
           echo "Testing name lookup for 'Noah'"
-          RESPONSE=$(curl --fail "$FRONTEND_URL/api/names/Noah")
+          RESPONSE=$(curl --fail "${{ env.STAGING_URL }}/api/names/Noah")
           echo "Response: $RESPONSE"
           echo "$RESPONSE" | grep -q "rank"
 
@@ -329,11 +337,10 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [resolve-sha, smoke-tests-staging]
-    # Only manual production deployments
-    # Skip for: dry-run mode
-    # Uses always() to run even when staging is skipped (direct production deploy)
+    # Production deployment: manual only, requires staging success or skip
+    # Uses !cancelled() instead of always() to prevent running after workflow cancellation
     if: >
-      always() &&
+      !cancelled() &&
       needs.resolve-sha.result == 'success' &&
       needs.resolve-sha.outputs.is_dry_run != 'true' &&
       github.event_name == 'workflow_dispatch' &&
@@ -347,10 +354,10 @@ jobs:
       packages: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -414,11 +421,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy-production
     environment: production
+    permissions: {}  # No GitHub permissions needed - external HTTP only
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: '3.11'
 
