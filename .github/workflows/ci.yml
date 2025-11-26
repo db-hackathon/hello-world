@@ -200,9 +200,18 @@ jobs:
       - name: Tag image for registry
         run: |
           LOCAL_IMAGE="ghcr.io/db-hackathon/baby-names-${{ matrix.component }}:local"
+          # Tag with all generated tags (main, main-{sha}, etc.)
+          echo "${{ steps.meta.outputs.tags }}" | while read -r tag; do
+            echo "Tagging: $tag"
+            docker tag $LOCAL_IMAGE "$tag"
+          done
+          # Store first tag for digest lookup and attestation subject
           REGISTRY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
-          docker tag $LOCAL_IMAGE $REGISTRY_TAG
           echo "REGISTRY_TAG=$REGISTRY_TAG" >> $GITHUB_ENV
+          # Store all tags for push step
+          echo "ALL_TAGS<<EOF" >> $GITHUB_ENV
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Get image digest
         id: digest
@@ -265,7 +274,12 @@ jobs:
 
       - name: Push container to registry
         if: github.event_name != 'pull_request'
-        run: docker push ${{ env.REGISTRY_TAG }}
+        run: |
+          # Push all tags (main, main-{sha}, etc.)
+          echo "${{ env.ALL_TAGS }}" | while read -r tag; do
+            echo "Pushing: $tag"
+            docker push "$tag"
+          done
 
       - name: Add container details to job summary
         if: github.event_name != 'pull_request'
