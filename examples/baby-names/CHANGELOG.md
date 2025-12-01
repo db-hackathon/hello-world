@@ -29,11 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remove unused checkout, Python setup, and pip install from smoke test jobs (tests use curl only)
 
 ### Added
-- Attestation verification in CD workflow (hard-fail)
+- Attestation verification in CD workflow (non-blocking warning)
   - Verifies build attestations for all images before deployment
   - Uses `gh attestation verify` against GAR images
-  - Blocks deployment if any image lacks valid attestation
-  - Ensures only images from trusted CI pipeline can be deployed
+  - Currently non-blocking due to CI attestation digest mismatch (TODO: fix in PR 3)
+  - Will block deployment when CI is fixed to use manifest digest for attestations
 - CD workflow triggered by CI completion instead of push events
   - Uses `workflow_run` trigger to wait for CI workflow success
   - Eliminates race condition where CD tried to deploy before CI built images
@@ -258,10 +258,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enables password-based authentication for non-IAM deployments
 
 ### Security
-- Attestation verification gates CD deployments
-  - Images without valid build attestations are rejected
-  - Prevents deployment of tampered or untrusted images
-  - Part of supply chain security enforcement
+- Attestation verification framework in CD deployments (non-blocking)
+  - Verifies build attestations exist for deployed images
+  - Currently warning-only due to CI attestation digest mismatch
+  - Will enforce hard-fail once CI uses manifest digests for attestations
 - Container images now scan clean for CRITICAL vulnerabilities
 - Dependency vulnerability scanning integrated into CI pipeline
 - All security artifacts attested via GitHub Actions
