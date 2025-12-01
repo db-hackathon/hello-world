@@ -1,12 +1,12 @@
-# Staging environment overrides for baby-names
+# Stage environment overrides for baby-names
 # These values override the defaults in values.yaml
 # NOTE: Namespace and ServiceAccount are created by Terraform
 
 namespace:
-  name: baby-names-staging
+  name: baby-names-stage
 
 serviceAccount:
-  name: baby-names-staging
+  name: baby-names-stage
 
 backend:
   image:
@@ -15,7 +15,7 @@ backend:
     DB_HOST: localhost
     DB_PORT: "5432"
     DB_NAME: baby_names
-    DB_USER: hello-world-staging@extended-ascent-477308-m8.iam
+    DB_USER: bn-stage@extended-ascent-477308-m8.iam
     DB_IAM_AUTH: "true"
 
 frontend:
@@ -31,11 +31,11 @@ migration:
     DB_HOST: localhost
     DB_PORT: "5432"
     DB_NAME: baby_names
-    DB_USER: hello-world-staging@extended-ascent-477308-m8.iam
+    DB_USER: bn-stage@extended-ascent-477308-m8.iam
     DB_IAM_AUTH: "true"
 
 database:
-  instanceConnectionName: "extended-ascent-477308-m8:europe-west1:hello-world-manual"
+  instanceConnectionName: "extended-ascent-477308-m8:europe-west1:baby-names-stage"
   iamAuth: true
 
 ingress:
@@ -44,7 +44,7 @@ ingress:
   annotations:
     kubernetes.io/ingress.class: "gce"
   hosts:
-    - host: gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+    - host: ""  # Will be updated after ingress IP is assigned
       paths:
         - path: /
           pathType: Prefix

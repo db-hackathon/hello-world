@@ -1,6 +1,8 @@
-# Provider Configurations
+# Provider Configurations for Test Environment
+# Uses gcloud application-default credentials
 
 # Google Cloud Provider
+# Authenticates using: gcloud auth application-default login
 provider "google" {
   project = var.project_id
   region  = var.region
@@ -19,7 +21,7 @@ data "google_container_cluster" "primary" {
 }
 
 # Kubernetes Provider
-# Authenticates to GKE cluster using Terraform execution service account
+# Authenticates to GKE cluster using gcloud credentials
 provider "kubernetes" {
   host  = "https://${data.google_container_cluster.primary.endpoint}"
   token = data.google_client_config.default.access_token

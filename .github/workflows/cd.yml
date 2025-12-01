@@ -41,10 +41,10 @@ env:
   # GCP Configuration
   GCP_PROJECT_ID: extended-ascent-477308-m8
   GCP_REGION: europe-west1
-  GKE_CLUSTER: hellow-world-manual
+  GKE_CLUSTER: baby-names-stage
   WORKLOAD_IDENTITY_PROVIDER: projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023
   # Environment URLs
-  STAGING_URL: http://gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog
+  STAGING_URL: http://136.110.219.158
 
 jobs:
   # Resolve which SHA to deploy and validate images
@@ -259,9 +259,9 @@ jobs:
           SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
           helm upgrade --install baby-names . \
-            --namespace baby-names-staging \
+            --namespace baby-names-stage \
             --create-namespace \
-            --values values-staging.yaml \
+            --values values-stage.yaml \
             --set backend.image.tag=main-${SHORT_SHA} \
             --set frontend.image.tag=main-${SHORT_SHA} \
             --set migration.image.tag=main-${SHORT_SHA} \
@@ -274,34 +274,34 @@ jobs:
 
           # Wait for deployments to be ready (with timeout)
           echo "Waiting for backend deployment..."
-          kubectl rollout status deployment/baby-names-backend -n baby-names-staging --timeout=5m
+          kubectl rollout status deployment/baby-names-backend -n baby-names-stage --timeout=5m
 
           echo "Waiting for frontend deployment..."
-          kubectl rollout status deployment/baby-names-frontend -n baby-names-staging --timeout=5m
+          kubectl rollout status deployment/baby-names-frontend -n baby-names-stage --timeout=5m
 
           # Verify all pods are running
           echo "=== Pod Status ==="
-          kubectl get pods -n baby-names-staging
+          kubectl get pods -n baby-names-stage
 
           # Check that no pods are in error state
-          FAILED_PODS=$(kubectl get pods -n baby-names-staging --field-selector=status.phase!=Running,status.phase!=Succeeded -o name 2>/dev/null | wc -l)
+          FAILED_PODS=$(kubectl get pods -n baby-names-stage --field-selector=status.phase!=Running,status.phase!=Succeeded -o name 2>/dev/null | wc -l)
           if [ "$FAILED_PODS" -gt 0 ]; then
             echo "ERROR: Found $FAILED_PODS pods not in Running/Succeeded state"
-            kubectl get pods -n baby-names-staging --field-selector=status.phase!=Running,status.phase!=Succeeded
+            kubectl get pods -n baby-names-stage --field-selector=status.phase!=Running,status.phase!=Succeeded
             exit 1
           fi
 
           echo "=== Service Status ==="
-          kubectl get services -n baby-names-staging
+          kubectl get services -n baby-names-stage
 
           echo "=== Ingress Status ==="
-          kubectl get ingress -n baby-names-staging
+          kubectl get ingress -n baby-names-stage
 
           # Wait for ingress IP using kubectl wait (more reliable than polling loop)
           echo "Waiting for ingress IP assignment..."
           if kubectl wait --for=jsonpath='{.status.loadBalancer.ingress[0].ip}' \
-               ingress/baby-names -n baby-names-staging --timeout=300s 2>/dev/null; then
-            INGRESS_IP=$(kubectl get ingress baby-names -n baby-names-staging \
+               ingress/baby-names -n baby-names-stage --timeout=300s 2>/dev/null; then
+            INGRESS_IP=$(kubectl get ingress baby-names -n baby-names-stage \
                          -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
             echo "Ingress IP assigned: $INGRESS_IP"
           else
@@ -336,17 +336,15 @@ jobs:
           echo "Testing frontend health at ${{ env.STAGING_URL }}/health"
           curl --retry 10 --retry-delay 10 --retry-connrefused --fail "${{ env.STAGING_URL }}/health"
 
-      - name: Test backend health endpoint (via frontend proxy)
+      - name: Test critical user path (full stack)
         run: |
-          echo "Testing backend health via ${{ env.STAGING_URL }}/api/health"
-          curl --retry 10 --retry-delay 10 --retry-connrefused --fail "${{ env.STAGING_URL }}/api/health"
-
-      - name: Test critical user path
-        run: |
-          echo "Testing name lookup for 'Noah'"
-          RESPONSE=$(curl --fail "${{ env.STAGING_URL }}/api/names/Noah")
-          echo "Response: $RESPONSE"
-          echo "$RESPONSE" | grep -q "rank"
+          echo "Testing name lookup for 'Noah' via frontend"
+          # Test via frontend which proxies to backend and database
+          RESPONSE=$(curl --retry 5 --retry-delay 5 --retry-connrefused --fail "${{ env.STAGING_URL }}/?name=Noah")
+          echo "Response received (truncated): ${RESPONSE:0:500}..."
+          # Verify the response contains expected rank data
+          echo "$RESPONSE" | grep -q "Rank"
+          echo "✓ Name lookup returned expected rank information"
 
       - name: Smoke tests summary
         run: |
@@ -356,8 +354,7 @@ jobs:
           echo ""
           echo "All critical paths verified:"
           echo "  ✓ Frontend health endpoint responding"
-          echo "  ✓ Backend health endpoint responding"
-          echo "  ✓ Database connectivity verified"
+          echo "  ✓ Full stack test passed (frontend -> backend -> database)"
           echo "  ✓ Name lookup functionality working"
           echo ""
           echo "Staging deployment is healthy and ready!"

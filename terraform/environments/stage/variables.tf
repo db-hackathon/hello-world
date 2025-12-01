@@ -35,6 +35,12 @@ variable "subnetwork_name" {
   default     = "default"
 }
 
+variable "create_nat" {
+  description = "Whether to create Cloud NAT resources"
+  type        = bool
+  default     = true
+}
+
 variable "nat_router_name" {
   description = "Cloud Router name for NAT"
   type        = string

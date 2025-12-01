@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Staging infrastructure recreated with new naming convention
+  - New Terraform environment: `terraform/environments/stage/`
+  - Renamed from legacy `hellow-world-manual`/`hello-world-manual` to `baby-names-stage` pattern
+  - GKE cluster: `baby-names-stage`
+  - CloudSQL instance: `baby-names-stage`
+  - Kubernetes namespace: `baby-names-stage`
+  - GCP service account: `bn-stage`
+  - Shared NAT with test environment (`create_nat = false`)
+  - Uses local Terraform state backend
+- CD workflow updated for new stage environment
+  - GKE_CLUSTER changed from `hellow-world-manual` to `baby-names-stage`
+  - Namespace changed from `baby-names-staging` to `baby-names-stage`
+  - Helm values file changed from `values-staging.yaml` to `values-stage.yaml`
+  - STAGING_URL updated to new ingress IP (`http://136.110.219.158`)
+- CD workflow smoke tests simplified
+  - Removed direct backend API test (`/api/health`) due to GCE ingress path routing
+  - Full stack test now uses frontend form (`/?name=Noah`) which exercises frontend, backend, and database
+  - Tests verify actual user-facing functionality instead of internal API endpoints
+
+### Removed
+- Old staging Terraform environment (`terraform/environments/staging/`)
+- Old Helm values file (`values-staging.yaml`)
+
+### Changed
 - CD workflow migrated from ghcr.io to Google Artifact Registry (GAR)
   - Image validation now checks GAR instead of GitHub Container Registry
   - Helm values.yaml updated to use GAR image repositories

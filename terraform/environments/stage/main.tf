@@ -1,5 +1,6 @@
-# Baby Names Application - Staging Environment
+# Baby Names Application - Test Environment
 # Terraform configuration for GCP and Kubernetes infrastructure
+# Uses local state and gcloud application-default credentials
 
 terraform {
   required_version = ">= 1.5"
@@ -31,6 +32,7 @@ module "gcp_project_setup" {
   project_id      = var.project_id
   region          = var.region
   network_name    = var.network_name
+  create_nat      = var.create_nat
   nat_router_name = var.nat_router_name
   nat_config_name = var.nat_config_name
 }
@@ -147,7 +149,7 @@ module "database_bootstrap" {
   instance_connection_name = module.cloudsql.instance_connection_name
 
   database_name  = var.database_name
-  iam_user_email = module.gcp_service_account.service_account_email
+  iam_user_email = module.cloudsql.iam_database_user  # Use CloudSQL-formatted IAM user (without .gserviceaccount.com)
 
   namespace            = var.namespace
   service_account_name = var.k8s_service_account_name
