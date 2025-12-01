@@ -1,11 +1,15 @@
 # GAR Migration Progress
 
-## Status: In Progress
+## Status: PR 2 Complete - Ready for PR 3
 
-**Plan file**: `.claude/plans/dynamic-leaping-starling.md`
+**Completed**:
+- ✅ PR 1: CI dual-push to ghcr.io + GAR (merged)
+- ✅ PR 2: CD validates/pulls from GAR (merged)
+
+**Next**: PR 3 - Fix attestation digest & remove ghcr.io
 
 **Starting a new session**: Tell Claude:
-> "Continue the GAR migration. Read `docs/GAR_MIGRATION_PROGRESS.md` for current status and `.claude/plans/dynamic-leaping-starling.md` for the full plan."
+> "Continue the GAR migration. Read `docs/GAR_MIGRATION_PROGRESS.md` for current status and start PR 3: CI attestation fix and ghcr.io cleanup."
 
 ---
 
@@ -125,17 +129,158 @@ migration:
 2. Test with dry-run: `gh workflow run cd.yml --field commit_sha=2a95024... --field environment=staging --field dry_run=true`
 3. Merge locally to main (same process as PR 1)
 
-## PR 3: Terraform & Cleanup
+## PR 3: CI Attestation Fix & ghcr.io Cleanup
 
-**Goal**: Remove ghcr.io dependencies
+**Goal**: Fix attestation verification and remove ghcr.io dependencies
 
-- [ ] Add Artifact Registry Reader IAM to GCP SA module
-- [ ] Remove ghcr-secret from k8s-namespace module
+### Tasks
+- [ ] Fix CI attestation to use manifest digest (enables hard-fail verification)
 - [ ] Remove ghcr.io push from CI (GAR-only)
-- [ ] Update CLAUDE.md documentation
+- [ ] Enable hard-fail attestation verification in CD
+- [ ] Add Artifact Registry Reader IAM to GCP SA module (if needed)
+- [ ] Remove ghcr-secret from k8s-namespace module
+- [ ] Update documentation (CLAUDE.md, README)
 - [ ] Update CHANGELOG.md
 - [ ] Verify full pipeline without ghcr.io
 - [ ] Merge PR 3
+
+### PR 3 Technical Details
+
+#### 1. Fix CI Attestation Digest (CRITICAL)
+
+**Problem**: CI creates attestations using image config digest (`docker inspect --format='{{.Id}}'`),
+but `gh attestation verify` looks up by manifest digest from registry. These don't match.
+
+**File**: `.github/workflows/ci.yml`
+
+**Current code (lines 286-291)**:
+```yaml
+- name: Get image digest
+  id: digest
+  run: |
+    # Get the image ID (format: sha256:xxxxx)
+    IMAGE_ID=$(docker inspect --format='{{.Id}}' ${{ env.REGISTRY_TAG }})
+    echo "digest=$IMAGE_ID" >> $GITHUB_OUTPUT
+```
+
+**Fix**: Get manifest digest AFTER push using `crane` or `docker manifest inspect`:
+```yaml
+- name: Get image manifest digest
+  id: digest
+  run: |
+    # Get manifest digest from registry after push (not local config digest)
+    # Using crane for reliable manifest digest retrieval
+    DIGEST=$(crane digest ${{ env.REGISTRY_TAG }})
+    echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+```
+
+**Alternative using docker**:
+```yaml
+- name: Get image manifest digest
+  id: digest
+  run: |
+    # Get manifest digest from registry
+    DIGEST=$(docker manifest inspect ${{ env.REGISTRY_TAG }} -v | jq -r '.Descriptor.digest')
+    echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+```
+
+**Important**: The digest step MUST run AFTER the push step, not before. Currently it runs before push.
+Need to reorder: Build → Tag → Push → Get Digest → Attest
+
+#### 2. Remove ghcr.io Push from CI
+
+**File**: `.github/workflows/ci.yml`
+
+**Remove/comment out**:
+- `REGISTRY_GHCR` and `IMAGE_NAME_PREFIX_GHCR` env vars
+- `meta-ghcr` metadata step
+- ghcr.io login action
+- ghcr.io tagging in "Build and tag" step
+- ghcr.io push in "Push container to all registries" step
+
+**Keep**:
+- GAR primary push
+- GAR secondary push (cross-region redundancy)
+- All attestation steps
+
+#### 3. Enable Hard-Fail Attestation in CD
+
+**File**: `.github/workflows/cd.yml`
+
+**Current** (line 149):
+```yaml
+continue-on-error: true
+```
+
+**Change to**:
+```yaml
+# continue-on-error: true  # Removed - attestation now uses correct manifest digest
+```
+
+Also remove the TODO comments about the workaround.
+
+#### 4. Terraform: Artifact Registry Reader IAM (if GKE needs it)
+
+**Note**: GKE likely already has access via:
+- Default compute SA with `roles/artifactregistry.reader`
+- Or existing service account bindings
+
+**Check first**:
+```bash
+# Check if GKE can pull from GAR (test deployment)
+kubectl run test --image=europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-backend:main --rm -it --restart=Never -- echo "success"
+```
+
+If GKE cannot pull, add to `terraform/modules/gcp-sa/main.tf`:
+```hcl
+resource "google_artifact_registry_repository_iam_member" "reader" {
+  project    = var.gar_project
+  location   = var.gar_location
+  repository = var.gar_repository
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.sa.email}"
+}
+```
+
+#### 5. Remove ghcr-secret from k8s-namespace module
+
+**File**: `terraform/modules/k8s-namespace/main.tf`
+
+Look for and remove any `kubernetes_secret` resources creating ghcr.io pull secrets.
+
+#### 6. Documentation Updates
+
+**Files to update**:
+- `CLAUDE.md` - Remove any ghcr.io references
+- `examples/baby-names/README.md` - Update registry references
+- `terraform/README.md` - Update if references ghcr.io
+
+### Testing Procedure
+
+1. Create feature branch: `git checkout -b feature/gar-migration-cleanup`
+2. Make CI changes (attestation fix, remove ghcr.io)
+3. Push and verify CI builds correctly
+4. Verify attestations can be verified:
+   ```bash
+   gh attestation verify oci://europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-backend:main-<SHA> --owner db-hackathon
+   ```
+5. Update CD to enable hard-fail attestation
+6. Test CD dry-run: `gh workflow run cd.yml --ref feature/gar-migration-cleanup -f commit_sha=<NEW_SHA> -f environment=staging -f dry_run=true`
+7. Merge to main
+
+### Pre-existing Issues (Not Part of PR 3)
+
+**GKE Deployment WIF Permission Error**:
+The staging deployment fails because the WIF principal for environment:staging doesn't have GKE permissions.
+This is a separate issue requiring IAM binding changes in `hackathon-seed-2021` project.
+
+Error: `Required "container.clusters.get" permission(s) for "projects/extended-ascent-477308-m8/locations/europe-west1/clusters/hellow-world-manual"`
+
+Principal: `principal://iam.googleapis.com/projects/785558430619/locations/global/workloadIdentityPools/github-2023/subject/repo:db-hackathon/hello-world:environment:staging`
+
+**Fix options** (not part of GAR migration):
+1. Add IAM binding for the environment-specific principal
+2. Change CD to use service account impersonation (like CI does with idp-sa)
 
 ---
 
