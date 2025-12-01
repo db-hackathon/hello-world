@@ -21,7 +21,7 @@
 - [x] Update CI workflow for dual-push (ghcr.io + GAR)
 - [x] Update attestation subject-name to GAR path
 - [x] Update Makefiles with GAR registry variables (NOT NEEDED - CI re-tags)
-- [ ] Test on feature branch
+- [x] Test on feature branch
 - [ ] Merge PR 1
 
 ## PR 2: CD (Pull from GAR + Attestation Verification)
@@ -61,3 +61,14 @@
 - WIF provider in project `hackathon-seed-2021` (785558430619)
 - Principal format: `principalSet://iam.googleapis.com/projects/785558430619/locations/global/workloadIdentityPools/github-2023/attribute.repository/db-hackathon/hello-world`
 - Note: GKE SA (`hello-world-staging@...`) doesn't exist yet - will be addressed in PR 3 via Terraform
+
+### Session 2 (2025-12-01)
+- Fixed WIF authentication: Direct WIF with `token_format: access_token` requires a service_account
+- Changed to SA impersonation using existing `idp-sa@extended-ascent-477308-m8.iam.gserviceaccount.com`
+- Added IAM bindings:
+  - `roles/iam.workloadIdentityUser` on SA for WIF impersonation
+  - `roles/artifactregistry.writer` to SA on both GAR repos
+- Fixed tag generation: SHA tags with `{{branch}}` prefix were invalid for PRs (empty branch)
+- Changed to `enable=${{ github.ref == 'refs/heads/main' }}` to only generate SHA tags on main
+- CI run passed (19821140329) - PR #1 ready for merge
+- PR: https://github.com/db-hackathon/hello-world/pull/1
