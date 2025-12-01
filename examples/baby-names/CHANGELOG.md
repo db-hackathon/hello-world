@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full stack test now uses frontend form (`/?name=Noah`) which exercises frontend, backend, and database
   - Tests verify actual user-facing functionality instead of internal API endpoints
 
+### Fixed
+- CD workflow verification now excludes migration job pods from failure check
+  - Migration job pods with cloud-sql-proxy sidecar remain NotReady after migration completes
+  - Verification now separately checks migration container exit code
+  - Prevents false failures when deployments are actually healthy
+
+### Added
+- IAM binding for GitHub Actions staging environment principal
+  - Added `roles/container.developer` for `environment:staging` WIF principal
+  - Enables CD workflow to access baby-names-stage GKE cluster
+
 ### Removed
 - Old staging Terraform environment (`terraform/environments/staging/`)
 - Old Helm values file (`values-staging.yaml`)

@@ -283,12 +283,32 @@ jobs:
           echo "=== Pod Status ==="
           kubectl get pods -n baby-names-stage
 
-          # Check that no pods are in error state
-          FAILED_PODS=$(kubectl get pods -n baby-names-stage --field-selector=status.phase!=Running,status.phase!=Succeeded -o name 2>/dev/null | wc -l)
+          # Check that no deployment pods are in error state (exclude migration job pods)
+          # Migration job pods have cloud-sql-proxy sidecar that never exits
+          FAILED_PODS=$(kubectl get pods -n baby-names-stage \
+            --field-selector=status.phase!=Running,status.phase!=Succeeded \
+            -l '!job-name' -o name 2>/dev/null | wc -l)
           if [ "$FAILED_PODS" -gt 0 ]; then
-            echo "ERROR: Found $FAILED_PODS pods not in Running/Succeeded state"
-            kubectl get pods -n baby-names-stage --field-selector=status.phase!=Running,status.phase!=Succeeded
+            echo "ERROR: Found $FAILED_PODS deployment pods not in Running/Succeeded state"
+            kubectl get pods -n baby-names-stage --field-selector=status.phase!=Running,status.phase!=Succeeded -l '!job-name'
             exit 1
+          fi
+
+          # Check migration job completion separately (check migration container exit code)
+          echo "=== Migration Job Status ==="
+          MIGRATION_POD=$(kubectl get pods -n baby-names-stage -l job-name -o name 2>/dev/null | head -1)
+          if [ -n "$MIGRATION_POD" ]; then
+            MIGRATION_STATUS=$(kubectl get ${MIGRATION_POD} -n baby-names-stage \
+              -o jsonpath='{.status.containerStatuses[?(@.name=="migration")].state.terminated.exitCode}' 2>/dev/null)
+            if [ "$MIGRATION_STATUS" = "0" ]; then
+              echo "Migration completed successfully (sidecar still running - expected)"
+            elif [ -n "$MIGRATION_STATUS" ]; then
+              echo "ERROR: Migration failed with exit code $MIGRATION_STATUS"
+              kubectl logs ${MIGRATION_POD} -n baby-names-stage -c migration
+              exit 1
+            else
+              echo "WARNING: Migration container status unknown"
+            fi
           fi
 
           echo "=== Service Status ==="
