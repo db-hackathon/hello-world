@@ -22,7 +22,7 @@
 - [x] Update attestation subject-name to GAR path
 - [x] Update Makefiles with GAR registry variables (NOT NEEDED - CI re-tags)
 - [x] Test on feature branch
-- [ ] Merge PR 1
+- [x] Merge PR 1
 
 ## PR 2: CD (Pull from GAR + Attestation Verification)
 
@@ -72,3 +72,8 @@
 - Changed to `enable=${{ github.ref == 'refs/heads/main' }}` to only generate SHA tags on main
 - CI run passed (19821140329) - PR #1 ready for merge
 - PR: https://github.com/db-hackathon/hello-world/pull/1
+- Merged locally and pushed to main (commit 2a95024)
+- PR #1 auto-merged when commits landed on main
+- Main CI run passed (19821427865) - images pushed to all registries
+- Verified images in both GAR repos with tags: `main`, `main-2a95024`
+- Feature branch cleaned up
