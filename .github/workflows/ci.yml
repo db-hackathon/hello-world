@@ -8,8 +8,17 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME_PREFIX: ${{ github.repository }}/baby-names
+  # GitHub Container Registry (legacy, maintained for backward compatibility)
+  REGISTRY_GHCR: ghcr.io
+  IMAGE_NAME_PREFIX_GHCR: ${{ github.repository }}/baby-names
+  # Google Artifact Registry (primary)
+  REGISTRY_GAR: europe-west1-docker.pkg.dev
+  GAR_PROJECT_PRIMARY: extended-ascent-477308-m8
+  GAR_PROJECT_SECONDARY: geometric-rock-477308-e2
+  GAR_REPO: idp-pov
+  IMAGE_NAME_PREFIX_GAR: baby-names
+  # WIF Configuration
+  WORKLOAD_IDENTITY_PROVIDER: projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023
 
 permissions:
   contents: read
@@ -174,18 +183,54 @@ jobs:
             echo "dir=${{ matrix.component }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Log in to Container Registry
+      - name: Authenticate to Google Cloud (Direct WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          token_format: access_token
+
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Log in to Google Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GAR }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Extract metadata for ghcr.io
+        id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.component }}
+          images: ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME_PREFIX_GHCR }}-${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+
+      - name: Extract metadata for GAR (primary)
+        id: meta-gar-primary
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME_PREFIX_GAR }}-${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+
+      - name: Extract metadata for GAR (secondary)
+        id: meta-gar-secondary
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_SECONDARY }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME_PREFIX_GAR }}-${{ matrix.component }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -197,20 +242,46 @@ jobs:
         working-directory: examples/baby-names/${{ steps.set-dir.outputs.dir }}
         run: make build
 
-      - name: Tag image for registry
+      - name: Tag image for all registries
         run: |
           LOCAL_IMAGE="ghcr.io/db-hackathon/baby-names-${{ matrix.component }}:local"
-          # Tag with all generated tags (main, main-{sha}, etc.)
-          echo "${{ steps.meta.outputs.tags }}" | while read -r tag; do
-            echo "Tagging: $tag"
+
+          # Tag for ghcr.io (backward compatibility)
+          echo "Tagging for ghcr.io..."
+          echo "${{ steps.meta-ghcr.outputs.tags }}" | while read -r tag; do
+            echo "  Tagging: $tag"
             docker tag $LOCAL_IMAGE "$tag"
           done
-          # Store first tag for digest lookup and attestation subject
-          REGISTRY_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+
+          # Tag for GAR primary
+          echo "Tagging for GAR primary..."
+          echo "${{ steps.meta-gar-primary.outputs.tags }}" | while read -r tag; do
+            echo "  Tagging: $tag"
+            docker tag $LOCAL_IMAGE "$tag"
+          done
+
+          # Tag for GAR secondary
+          echo "Tagging for GAR secondary..."
+          echo "${{ steps.meta-gar-secondary.outputs.tags }}" | while read -r tag; do
+            echo "  Tagging: $tag"
+            docker tag $LOCAL_IMAGE "$tag"
+          done
+
+          # Store first GAR primary tag for digest lookup and attestation subject
+          REGISTRY_TAG=$(echo "${{ steps.meta-gar-primary.outputs.tags }}" | head -n1)
           echo "REGISTRY_TAG=$REGISTRY_TAG" >> $GITHUB_ENV
-          # Store all tags for push step
-          echo "ALL_TAGS<<EOF" >> $GITHUB_ENV
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_ENV
+
+          # Store all tags for push step (all registries)
+          echo "ALL_TAGS_GHCR<<EOF" >> $GITHUB_ENV
+          echo "${{ steps.meta-ghcr.outputs.tags }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          echo "ALL_TAGS_GAR_PRIMARY<<EOF" >> $GITHUB_ENV
+          echo "${{ steps.meta-gar-primary.outputs.tags }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          echo "ALL_TAGS_GAR_SECONDARY<<EOF" >> $GITHUB_ENV
+          echo "${{ steps.meta-gar-secondary.outputs.tags }}" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Get image digest
@@ -259,7 +330,7 @@ jobs:
         uses: actions/attest-sbom@v3
         if: github.event_name != 'pull_request'
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.component }}
+          subject-name: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME_PREFIX_GAR }}-${{ matrix.component }}
           subject-digest: ${{ steps.digest.outputs.digest }}
           sbom-path: examples/baby-names/${{ steps.set-dir.outputs.dir }}/${{ matrix.component }}-sbom.spdx.json
           push-to-registry: false
@@ -268,33 +339,52 @@ jobs:
         uses: actions/attest-build-provenance@v3
         if: github.event_name != 'pull_request'
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.component }}
+          subject-name: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/${{ env.IMAGE_NAME_PREFIX_GAR }}-${{ matrix.component }}
           subject-digest: ${{ steps.digest.outputs.digest }}
           push-to-registry: false
 
-      - name: Push container to registry
+      - name: Push container to all registries
         if: github.event_name != 'pull_request'
         run: |
-          # Push all tags (main, main-{sha}, etc.)
-          echo "${{ env.ALL_TAGS }}" | while read -r tag; do
+          echo "=== Pushing to ghcr.io (backward compatibility) ==="
+          echo "${{ env.ALL_TAGS_GHCR }}" | while read -r tag; do
             echo "Pushing: $tag"
             docker push "$tag"
           done
+
+          echo "=== Pushing to GAR primary (${{ env.GAR_PROJECT_PRIMARY }}) ==="
+          echo "${{ env.ALL_TAGS_GAR_PRIMARY }}" | while read -r tag; do
+            echo "Pushing: $tag"
+            docker push "$tag"
+          done
+
+          echo "=== Pushing to GAR secondary (${{ env.GAR_PROJECT_SECONDARY }}) ==="
+          echo "${{ env.ALL_TAGS_GAR_SECONDARY }}" | while read -r tag; do
+            echo "Pushing: $tag"
+            docker push "$tag"
+          done
+
+          echo "=== All pushes complete ==="
 
       - name: Add container details to job summary
         if: github.event_name != 'pull_request'
         run: |
           DIGEST_SHORT=$(echo "${{ steps.digest.outputs.digest }}" | cut -c1-19)
+          GAR_PRIMARY_TAG=$(echo "${{ steps.meta-gar-primary.outputs.tags }}" | head -n1)
+          GAR_SECONDARY_TAG=$(echo "${{ steps.meta-gar-secondary.outputs.tags }}" | head -n1)
+          GHCR_TAG=$(echo "${{ steps.meta-ghcr.outputs.tags }}" | head -n1)
           cat >> $GITHUB_STEP_SUMMARY << EOF
           ### 📦 Published Container: \`${{ matrix.component }}\`
 
           | Property | Value |
           |----------|-------|
-          | **Registry URL** | \`${{ env.REGISTRY_TAG }}\` |
+          | **GAR Primary** | \`${GAR_PRIMARY_TAG}\` |
+          | **GAR Secondary** | \`${GAR_SECONDARY_TAG}\` |
+          | **ghcr.io (legacy)** | \`${GHCR_TAG}\` |
           | **Digest** | \`${DIGEST_SHORT}...\` |
           | **Full Digest** | \`${{ steps.digest.outputs.digest }}\` |
 
-          **Attestations**: SBOM, Build Provenance, and Trivy scan results are available in workflow artifacts.
+          **Attestations**: SBOM and Build Provenance linked to GAR primary image.
 
           ---
           EOF
