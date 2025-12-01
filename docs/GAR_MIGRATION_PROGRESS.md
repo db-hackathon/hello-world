@@ -36,6 +36,95 @@
 - [ ] Test staging deployment
 - [ ] Merge PR 2
 
+### PR 2 Technical Details
+
+**Files to modify:**
+- `.github/workflows/cd.yml` - Add WIF auth, update image validation, add attestation verification
+- `examples/baby-names/helm/baby-names/values.yaml` - Update image repositories to GAR
+- `examples/baby-names/helm/baby-names/values-staging.yaml` - Update if exists
+
+**GAR Image Paths (use these):**
+```
+europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-backend
+europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-frontend
+europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-db-migration
+```
+
+**WIF Configuration (copy from CI workflow):**
+```yaml
+env:
+  REGISTRY_GAR: europe-west1-docker.pkg.dev
+  GAR_PROJECT_PRIMARY: extended-ascent-477308-m8
+  GAR_REPO: idp-pov
+  WORKLOAD_IDENTITY_PROVIDER: projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023
+
+# Authentication step
+- name: Authenticate to Google Cloud (WIF)
+  uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+    service_account: idp-sa@${{ env.GAR_PROJECT_PRIMARY }}.iam.gserviceaccount.com
+
+- name: Set up Cloud SDK
+  uses: google-github-actions/setup-gcloud@v2
+
+- name: Configure Docker for GAR
+  run: gcloud auth configure-docker ${{ env.REGISTRY_GAR }} --quiet
+```
+
+**Attestation Verification Step (add before deployment):**
+```yaml
+- name: Verify attestations
+  env:
+    SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    echo "Verifying build attestations for all images..."
+    FAILED=0
+
+    for component in backend frontend db-migration; do
+      IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/baby-names-${component}:main-${SHORT_SHA}"
+      echo "Verifying ${component} attestation..."
+      if ! gh attestation verify oci://${IMAGE} \
+           --owner ${{ github.repository_owner }}; then
+        echo "ERROR: Attestation verification failed for ${component}"
+        FAILED=1
+      else
+        echo "✅ ${component} attestation verified"
+      fi
+    done
+
+    if [ "$FAILED" -eq 1 ]; then
+      echo "ERROR: Attestation verification failed - deployment blocked"
+      exit 1
+    fi
+    echo "All attestations verified successfully"
+```
+
+**Image Validation (update to check GAR instead of ghcr.io):**
+- Change `docker manifest inspect ghcr.io/...` to `docker manifest inspect europe-west1-docker.pkg.dev/...`
+- Update the image path construction to use GAR format
+
+**Helm values.yaml changes:**
+```yaml
+backend:
+  image:
+    repository: europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-backend
+
+frontend:
+  image:
+    repository: europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-frontend
+
+migration:
+  image:
+    repository: europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-db-migration
+```
+
+**Testing:**
+1. Create feature branch: `git checkout -b feature/gar-migration-cd`
+2. Test with dry-run: `gh workflow run cd.yml --field commit_sha=2a95024... --field environment=staging --field dry_run=true`
+3. Merge locally to main (same process as PR 1)
+
 ## PR 3: Terraform & Cleanup
 
 **Goal**: Remove ghcr.io dependencies
