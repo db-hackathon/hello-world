@@ -85,22 +85,22 @@ module "gcp_service_account" {
 module "cloudsql" {
   source = "../../modules/cloudsql"
 
-  project_id              = var.project_id
-  instance_name           = var.cloudsql_instance_name
-  region                  = var.region
-  database_version        = var.database_version
-  tier                    = var.cloudsql_tier
-  availability_type       = var.cloudsql_availability_type
-  disk_size               = var.cloudsql_disk_size
-  deletion_protection     = var.cloudsql_deletion_protection
+  project_id          = var.project_id
+  instance_name       = var.cloudsql_instance_name
+  region              = var.region
+  database_version    = var.database_version
+  tier                = var.cloudsql_tier
+  availability_type   = var.cloudsql_availability_type
+  disk_size           = var.cloudsql_disk_size
+  deletion_protection = var.cloudsql_deletion_protection
 
   database_name  = var.database_name
   iam_user_email = module.gcp_service_account.service_account_email
 
-  backup_start_time                  = var.backup_start_time
-  enable_point_in_time_recovery      = var.enable_point_in_time_recovery
-  transaction_log_retention_days     = var.transaction_log_retention_days
-  retained_backups                   = var.retained_backups
+  backup_start_time              = var.backup_start_time
+  enable_point_in_time_recovery  = var.enable_point_in_time_recovery
+  transaction_log_retention_days = var.transaction_log_retention_days
+  retained_backups               = var.retained_backups
 
   maintenance_window_day  = var.maintenance_window_day
   maintenance_window_hour = var.maintenance_window_hour
@@ -115,6 +115,7 @@ module "cloudsql" {
 }
 
 # Module 5: Kubernetes Namespace and Prerequisites
+# Note: No image pull secrets needed - GKE uses Workload Identity to access GAR
 module "k8s_namespace" {
   source = "../../modules/k8s-namespace"
 
@@ -124,12 +125,6 @@ module "k8s_namespace" {
 
   service_account_name      = var.k8s_service_account_name
   gcp_service_account_email = module.gcp_service_account.service_account_email
-
-  image_pull_secret_name = var.image_pull_secret_name
-  registry_server        = var.registry_server
-  registry_username      = var.registry_username
-  registry_password      = var.registry_password
-  registry_email         = var.registry_email
 
   namespace_labels = var.namespace_labels
 
@@ -149,7 +144,7 @@ module "database_bootstrap" {
   instance_connection_name = module.cloudsql.instance_connection_name
 
   database_name  = var.database_name
-  iam_user_email = module.cloudsql.iam_database_user  # Use CloudSQL-formatted IAM user (without .gserviceaccount.com)
+  iam_user_email = module.cloudsql.iam_database_user # Use CloudSQL-formatted IAM user (without .gserviceaccount.com)
 
   namespace            = var.namespace
   service_account_name = var.k8s_service_account_name

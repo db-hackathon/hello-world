@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- CI attestation now uses manifest digest from registry after push
+  - Previously used local config digest (`docker inspect --format='{{.Id}}'`) before push
+  - Now uses `docker manifest inspect` after push to get registry manifest digest
+  - Fixes attestation verification failures in CD workflow
+  - `gh attestation verify` uses manifest digest, not config digest
+- CI workflow now pushes to Google Artifact Registry only (ghcr.io removed)
+  - Removed REGISTRY_GHCR and IMAGE_NAME_PREFIX_GHCR environment variables
+  - Removed ghcr.io login and metadata steps
+  - Simplified push logic to GAR primary only
+  - Restructured workflow: Build -> Tag -> Push to GAR -> Get manifest digest -> Attest
+- CD attestation verification now blocking (hard-fail on missing attestations)
+  - Removed `continue-on-error: true` from attestation verification step
+  - Deployment will fail if images lack valid attestations
+  - Ensures supply chain security is enforced, not just warned
+
+### Removed
+- ghcr.io container registry support from CI workflow
+  - All images now pushed exclusively to Google Artifact Registry
+  - Aligns with GAR migration (PRs 1-3)
+- ghcr-secret from Terraform k8s-namespace module
+  - GKE uses Workload Identity to access GAR without image pull secrets
+  - Removed `kubernetes_secret.ghcr` resource
+  - Removed `image_pull_secret` from service account
+  - Removed registry variables from all environment configurations
+
+### Security
+- Attestation verification enforcement in CD deployments
+  - Build provenance and SBOM attestations now required for deployment
+  - CI attestation fix enables reliable verification (manifest digest match)
+  - Completes supply chain security hardening started in PR 2
+
+### Changed
 - Staging infrastructure recreated with new naming convention
   - New Terraform environment: `terraform/environments/stage/`
   - Renamed from legacy `hellow-world-manual`/`hello-world-manual` to `baby-names-stage` pattern

@@ -234,35 +234,8 @@ variable "k8s_service_account_name" {
   type        = string
 }
 
-# Container Registry Configuration
-variable "image_pull_secret_name" {
-  description = "Image pull secret name"
-  type        = string
-  default     = "ghcr-secret"
-}
-
-variable "registry_server" {
-  description = "Container registry server"
-  type        = string
-  default     = "ghcr.io"
-}
-
-variable "registry_username" {
-  description = "Container registry username"
-  type        = string
-}
-
-variable "registry_password" {
-  description = "Container registry password/token (GitHub PAT)"
-  type        = string
-  sensitive   = true
-}
-
-variable "registry_email" {
-  description = "Container registry email"
-  type        = string
-  default     = "noreply@github.com"
-}
+# Note: Container registry secrets removed - GKE uses Workload Identity to access GAR
+# The GCP service account has roles/artifactregistry.reader for image pulling
 
 # Database Bootstrap Configuration
 variable "bootstrap_pod_name" {

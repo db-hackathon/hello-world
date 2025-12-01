@@ -38,35 +38,8 @@ variable "gcp_service_account_email" {
   type        = string
 }
 
-# ImagePullSecret configuration
-variable "image_pull_secret_name" {
-  description = "Name of the image pull secret"
-  type        = string
-  default     = "ghcr-secret"
-}
-
-variable "registry_server" {
-  description = "Container registry server"
-  type        = string
-  default     = "ghcr.io"
-}
-
-variable "registry_username" {
-  description = "Container registry username"
-  type        = string
-}
-
-variable "registry_password" {
-  description = "Container registry password/token"
-  type        = string
-  sensitive   = true
-}
-
-variable "registry_email" {
-  description = "Container registry email"
-  type        = string
-  default     = "noreply@github.com"
-}
+# Note: Image pull secrets removed - GKE uses Workload Identity to access GAR
+# The GCP service account bound via Workload Identity has roles/artifactregistry.reader
 
 # Helm integration
 variable "helm_release_name" {

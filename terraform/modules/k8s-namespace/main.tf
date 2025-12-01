@@ -1,5 +1,6 @@
 # Kubernetes Namespace Module
-# Creates namespace, service account, RBAC, and image pull secrets
+# Creates namespace, service account, and RBAC for GKE with Workload Identity
+# Note: Image pull secrets are not needed - GKE uses Workload Identity to access GAR
 
 terraform {
   required_version = ">= 1.5"
@@ -40,42 +41,8 @@ locals {
   namespace = var.create_namespace ? kubernetes_namespace.app[0].metadata[0].name : var.namespace_name
 }
 
-# Create ImagePullSecret for GitHub Container Registry
-resource "kubernetes_secret" "ghcr" {
-  metadata {
-    name      = var.image_pull_secret_name
-    namespace = local.namespace
-
-    labels = {
-      "app.kubernetes.io/name"       = var.app_name
-      "app.kubernetes.io/managed-by" = var.add_helm_annotations ? "Helm" : "terraform"
-    }
-
-    annotations = var.add_helm_annotations && var.helm_release_name != "" ? {
-      "meta.helm.sh/release-name"      = var.helm_release_name
-      "meta.helm.sh/release-namespace" = var.namespace_name
-    } : {}
-  }
-
-  type = "kubernetes.io/dockerconfigjson"
-
-  data = {
-    ".dockerconfigjson" = jsonencode({
-      auths = {
-        "${var.registry_server}" = {
-          username = var.registry_username
-          password = var.registry_password
-          email    = var.registry_email
-          auth     = base64encode("${var.registry_username}:${var.registry_password}")
-        }
-      }
-    })
-  }
-
-  depends_on = [kubernetes_namespace.app]
-}
-
-# Create Kubernetes ServiceAccount with Workload Identity annotation and ImagePullSecret
+# Create Kubernetes ServiceAccount with Workload Identity annotation
+# GKE pods use this SA to authenticate to GCP services (GAR, CloudSQL, etc.)
 resource "kubernetes_service_account_v1" "app" {
   metadata {
     name      = var.service_account_name
@@ -97,13 +64,11 @@ resource "kubernetes_service_account_v1" "app" {
     }
   }
 
-  image_pull_secret {
-    name = kubernetes_secret.ghcr.metadata[0].name
-  }
+  # No image_pull_secret needed - GKE uses Workload Identity to access GAR
+  # The GCP service account has roles/artifactregistry.reader
 
   depends_on = [
-    kubernetes_namespace.app,
-    kubernetes_secret.ghcr
+    kubernetes_namespace.app
   ]
 }
 
