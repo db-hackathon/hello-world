@@ -211,7 +211,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
 
       - name: Extract metadata for GAR (primary)
@@ -222,7 +222,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
 
       - name: Extract metadata for GAR (secondary)
@@ -233,7 +233,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
             type=semver,pattern={{version}}
 
       - name: Build container image
