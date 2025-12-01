@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- CD workflow migrated from ghcr.io to Google Artifact Registry (GAR)
+  - Image validation now checks GAR instead of GitHub Container Registry
+  - Helm values.yaml updated to use GAR image repositories
+  - All image paths changed to `europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/*`
+  - WIF authentication added to all jobs requiring GAR access
 - CD workflow security hardening following GitHub Actions best practices
   - Pin all third-party actions to full SHA for supply chain security
   - Add workflow-level `permissions: contents: read` default
@@ -24,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remove unused checkout, Python setup, and pip install from smoke test jobs (tests use curl only)
 
 ### Added
+- Attestation verification in CD workflow (hard-fail)
+  - Verifies build attestations for all images before deployment
+  - Uses `gh attestation verify` against GAR images
+  - Blocks deployment if any image lacks valid attestation
+  - Ensures only images from trusted CI pipeline can be deployed
 - CD workflow triggered by CI completion instead of push events
   - Uses `workflow_run` trigger to wait for CI workflow success
   - Eliminates race condition where CD tried to deploy before CI built images
@@ -248,6 +258,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enables password-based authentication for non-IAM deployments
 
 ### Security
+- Attestation verification gates CD deployments
+  - Images without valid build attestations are rejected
+  - Prevents deployment of tampered or untrusted images
+  - Part of supply chain security enforcement
 - Container images now scan clean for CRITICAL vulnerabilities
 - Dependency vulnerability scanning integrated into CI pipeline
 - All security artifacts attested via GitHub Actions
