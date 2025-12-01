@@ -34,11 +34,10 @@ on:
         default: false
 
 env:
-  # Container Registry
-  REGISTRY: ghcr.io
-  IMAGE_NAME_BACKEND: ${{ github.repository }}/baby-names-backend
-  IMAGE_NAME_FRONTEND: ${{ github.repository }}/baby-names-frontend
-  IMAGE_NAME_MIGRATION: ${{ github.repository }}/baby-names-db-migration
+  # Google Artifact Registry (primary registry)
+  REGISTRY_GAR: europe-west1-docker.pkg.dev
+  GAR_PROJECT: extended-ascent-477308-m8
+  GAR_REPO: idp-pov
   # GCP Configuration
   GCP_PROJECT_ID: extended-ascent-477308-m8
   GCP_REGION: europe-west1
@@ -58,13 +57,26 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
-      packages: read
+      id-token: write       # Required for WIF authentication to GAR
+      attestations: read    # Required for attestation verification
     outputs:
       deploy_sha: ${{ steps.resolve.outputs.sha }}
       short_sha: ${{ steps.resolve.outputs.short_sha }}
       is_dry_run: ${{ steps.resolve.outputs.is_dry_run }}
       environment: ${{ steps.resolve.outputs.environment }}
     steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@6fc4af4b145ae7821d527454aa9bd537d1f2dc5f  # v2.1.8
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: idp-sa@${{ env.GAR_PROJECT }}.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f  # v2.1.4
+
+      - name: Configure Docker for GAR
+        run: gcloud auth configure-docker ${{ env.REGISTRY_GAR }} --quiet
+
       - name: Resolve deployment SHA
         id: resolve
         # Security: Use env vars for untrusted inputs (prevents script injection)
@@ -101,23 +113,16 @@ jobs:
           echo "Trigger: ${EVENT_NAME}"
           echo "=========================================="
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Validate images exist in registry
+      - name: Validate images exist in GAR
         env:
           # Use short SHA (7 chars) to match CI's docker/metadata-action tag format
           SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
         run: |
-          echo "Validating container images exist..."
+          echo "Validating container images exist in Google Artifact Registry..."
 
-          BACKEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-backend:main-${SHORT_SHA}"
-          FRONTEND_IMAGE="ghcr.io/${{ github.repository }}/baby-names-frontend:main-${SHORT_SHA}"
-          MIGRATION_IMAGE="ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${SHORT_SHA}"
+          BACKEND_IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-backend:main-${SHORT_SHA}"
+          FRONTEND_IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-frontend:main-${SHORT_SHA}"
+          MIGRATION_IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-db-migration:main-${SHORT_SHA}"
 
           echo "Checking backend: ${BACKEND_IMAGE}"
           docker manifest inspect "${BACKEND_IMAGE}" > /dev/null
@@ -133,8 +138,50 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "All images validated successfully!"
+          echo "All images validated in GAR!"
           echo "=========================================="
+
+      - name: Verify build attestations (non-blocking)
+        # TODO: Make this blocking once CI is fixed to use manifest digest for attestations
+        # Current issue: CI attests using config digest (docker inspect --format='{{.Id}}')
+        # but verification looks up by manifest digest from registry. These don't match.
+        # Fix: Update CI to push first, then use `crane digest` or similar for attestation.
+        continue-on-error: true
+        env:
+          SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Verifying build attestations for all images..."
+          echo "NOTE: This step is currently non-blocking (warning only)."
+          echo "Attestation verification will be enforced after CI fix."
+          echo ""
+          FAILED=0
+
+          for component in backend frontend db-migration; do
+            IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-${component}:main-${SHORT_SHA}"
+            echo "Verifying ${component} attestation..."
+            if ! gh attestation verify "oci://${IMAGE}" \
+                 --owner ${{ github.repository_owner }}; then
+              echo "⚠️ WARNING: Attestation verification failed for ${component}"
+              FAILED=1
+            else
+              echo "✅ ${component} attestation verified"
+            fi
+            echo ""
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "=========================================="
+            echo "⚠️ WARNING: Attestation verification failed!"
+            echo "Proceeding with deployment (non-blocking mode)."
+            echo "TODO: Fix CI attestation digest and enable blocking."
+            echo "=========================================="
+          else
+            echo "=========================================="
+            echo "All attestations verified successfully!"
+            echo "Images confirmed from trusted CI pipeline."
+            echo "=========================================="
+          fi
 
       - name: Dry-run summary
         if: steps.resolve.outputs.is_dry_run == 'true'
@@ -150,12 +197,12 @@ jobs:
           echo "  Short SHA: ${SHORT_SHA}"
           echo "  Environment: ${{ steps.resolve.outputs.environment }}"
           echo ""
-          echo "Images (using short SHA tag):"
-          echo "  Backend:   ghcr.io/${{ github.repository }}/baby-names-backend:main-${SHORT_SHA}"
-          echo "  Frontend:  ghcr.io/${{ github.repository }}/baby-names-frontend:main-${SHORT_SHA}"
-          echo "  Migration: ghcr.io/${{ github.repository }}/baby-names-db-migration:main-${SHORT_SHA}"
+          echo "Images from GAR (using short SHA tag):"
+          echo "  Backend:   ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-backend:main-${SHORT_SHA}"
+          echo "  Frontend:  ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-frontend:main-${SHORT_SHA}"
+          echo "  Migration: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-db-migration:main-${SHORT_SHA}"
           echo ""
-          echo "Validation: ✅ All images exist in registry"
+          echo "Validation: ✅ All images exist in GAR"
           echo ""
           echo "No actual deployment will be performed."
           echo "=========================================="
@@ -175,12 +222,13 @@ jobs:
       url: ${{ env.STAGING_URL }}
     permissions:
       contents: read
-      packages: read
-      id-token: write
+      id-token: write  # Required for WIF authentication
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Authenticate to Google Cloud (Direct WIF)
+        # NOTE: Uses direct WIF for GKE access (different SA than CI's idp-sa)
+        # The images are pulled by GKE using its own SA, not this workflow SA
         uses: google-github-actions/auth@6fc4af4b145ae7821d527454aa9bd537d1f2dc5f  # v2.1.8
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
@@ -203,13 +251,6 @@ jobs:
         uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112  # v4.3.0
         with:
           version: '3.13.0'
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Deploy with Helm
         working-directory: examples/baby-names/helm/baby-names
@@ -278,8 +319,8 @@ jobs:
           echo "Git SHA: ${DEPLOY_SHA}"
           echo "Actor: ${{ github.actor }}"
           echo "Trigger: ${{ github.event_name }}"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${SHORT_SHA}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${SHORT_SHA}"
+          echo "Backend image: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-backend:main-${SHORT_SHA}"
+          echo "Frontend image: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-frontend:main-${SHORT_SHA}"
 
   smoke-tests-staging:
     name: Smoke Tests (Staging)
@@ -340,26 +381,17 @@ jobs:
       url: https://baby-names.example.com
     permissions:
       contents: read
-      packages: read
-      id-token: write
+      id-token: write  # Required for WIF authentication
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull images
+      - name: Pull images (Stubbed)
         env:
           SHORT_SHA: ${{ needs.resolve-sha.outputs.short_sha }}
         run: |
-          echo "Pulling backend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${SHORT_SHA}"
-          echo "Pulling frontend image..."
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${SHORT_SHA}"
+          echo "Would pull from GAR:"
+          echo "  ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-backend:main-${SHORT_SHA}"
+          echo "  ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-frontend:main-${SHORT_SHA}"
 
       - name: Deploy to Production Kubernetes (Stubbed)
         env:
@@ -381,8 +413,8 @@ jobs:
           echo ""
           echo "Target cluster: production-k8s-cluster"
           echo "Namespace: baby-names-prod"
-          echo "Backend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_BACKEND }}:main-${SHORT_SHA}"
-          echo "Frontend image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONTEND }}:main-${SHORT_SHA}"
+          echo "Backend image: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-backend:main-${SHORT_SHA}"
+          echo "Frontend image: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-frontend:main-${SHORT_SHA}"
           echo ""
           echo "Production features:"
           echo "  - Multi-zone deployment for high availability"

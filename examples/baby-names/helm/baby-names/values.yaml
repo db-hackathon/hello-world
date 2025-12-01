@@ -19,7 +19,7 @@ serviceAccount:
 backend:
   replicaCount: 2
   image:
-    repository: ghcr.io/db-hackathon/hello-world/baby-names-backend
+    repository: europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-backend
     pullPolicy: IfNotPresent
     tag: "" # Defaults to chart appVersion if not set
   service:
@@ -52,7 +52,7 @@ backend:
 frontend:
   replicaCount: 2
   image:
-    repository: ghcr.io/db-hackathon/hello-world/baby-names-frontend
+    repository: europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-frontend
     pullPolicy: IfNotPresent
     tag: "" # Defaults to chart appVersion if not set
   service:
@@ -79,7 +79,7 @@ frontend:
 # Database migration job
 migration:
   image:
-    repository: ghcr.io/db-hackathon/hello-world/baby-names-db-migration
+    repository: europe-west1-docker.pkg.dev/extended-ascent-477308-m8/idp-pov/baby-names-db-migration
     pullPolicy: IfNotPresent
     tag: "" # Defaults to chart appVersion if not set
   resources:
