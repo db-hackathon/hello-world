@@ -28,13 +28,13 @@ resource "random_password" "postgres_password" {
 resource "null_resource" "database_permissions" {
   # Trigger re-run if any of these values change
   triggers = {
-    iam_user_email             = var.iam_user_email
-    database_name              = var.database_name
-    instance_connection_name   = var.instance_connection_name
-    namespace                  = var.namespace
-    service_account_name       = var.service_account_name
-    temp_pod_name              = var.temp_pod_name
-    script_hash                = filesha256("${path.module}/scripts/setup-db-permissions.sh")
+    iam_user_email           = var.iam_user_email
+    database_name            = var.database_name
+    instance_connection_name = var.instance_connection_name
+    namespace                = var.namespace
+    service_account_name     = var.service_account_name
+    temp_pod_name            = var.temp_pod_name
+    script_hash              = filesha256("${path.module}/scripts/setup-db-permissions.sh")
   }
 
   # Run the bootstrap script

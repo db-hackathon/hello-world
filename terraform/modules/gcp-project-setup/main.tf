@@ -50,9 +50,9 @@ resource "google_compute_router" "nat_router" {
 resource "google_compute_router_nat" "nat_config" {
   count = var.create_nat ? 1 : 0
 
-  name   = var.nat_config_name
-  router = google_compute_router.nat_router[0].name
-  region = var.region
+  name    = var.nat_config_name
+  router  = google_compute_router.nat_router[0].name
+  region  = var.region
   project = var.project_id
 
   nat_ip_allocate_option             = "AUTO_ONLY"

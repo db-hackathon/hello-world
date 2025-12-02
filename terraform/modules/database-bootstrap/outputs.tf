@@ -6,7 +6,7 @@ output "bootstrap_completed" {
 
 output "iam_database_user" {
   description = "PostgreSQL username for the IAM user (already formatted with .iam suffix)"
-  value       = var.iam_user_email  # Already formatted by upstream module
+  value       = var.iam_user_email # Already formatted by upstream module
 }
 
 output "database_name" {

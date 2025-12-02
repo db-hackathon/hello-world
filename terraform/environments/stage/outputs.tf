@@ -161,7 +161,7 @@ EOT
 # Next Steps
 output "next_steps" {
   description = "Next steps after Terraform apply"
-  value = <<-EOT
+  value       = <<-EOT
 
   ✓ Infrastructure provisioning complete!
 
