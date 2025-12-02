@@ -432,12 +432,13 @@ jobs:
       - name: Configure Docker for GAR
         run: gcloud auth configure-docker ${{ env.REGISTRY_GAR }} --quiet
 
+      # Use unique image names per run to avoid attestation pollution from previous runs
       - name: Create test image without SBOM
         run: |
           echo "FROM alpine:3.19" > /tmp/Dockerfile.test
-          docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom -f /tmp/Dockerfile.test /tmp
-          docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom
-          DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom -v | jq -r '.Descriptor.digest')
+          docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }} -f /tmp/Dockerfile.test /tmp
+          docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }}
+          DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }} -v | jq -r '.Descriptor.digest')
           echo "DIGEST=$DIGEST" >> $GITHUB_ENV
 
       - name: Attest Build Provenance only (no SBOM)
@@ -450,7 +451,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom"
+          IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }}"
 
           echo "Test 1: Build Provenance should PASS..."
           if gh attestation verify "oci://${IMAGE}" \
@@ -481,9 +482,9 @@ jobs:
       - name: Create test image with plain SBOM (no quality gates)
         run: |
           echo "FROM alpine:3.19" > /tmp/Dockerfile.plain
-          docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom -f /tmp/Dockerfile.plain /tmp
-          docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom
-          PLAIN_DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom -v | jq -r '.Descriptor.digest')
+          docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }} -f /tmp/Dockerfile.plain /tmp
+          docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }}
+          PLAIN_DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }} -v | jq -r '.Descriptor.digest')
           echo "PLAIN_DIGEST=$PLAIN_DIGEST" >> $GITHUB_ENV
 
           # Create a minimal SBOM without quality gate annotations
@@ -524,7 +525,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom"
+          IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }}"
 
           echo "=========================================="
           echo "Test 3: SBOM exists but lacks quality gates"
@@ -601,10 +602,10 @@ jobs:
         if: always()
         run: |
           gcloud artifacts docker images delete \
-            ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom \
+            ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }} \
             --quiet --delete-tags || true
           gcloud artifacts docker images delete \
-            ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom \
+            ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }} \
             --quiet --delete-tags || true
 
   ##
