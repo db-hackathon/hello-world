@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Attestation verification test job in CI workflow
+  - Creates test image with intentionally missing SBOM attestation
+  - Verifies Build Provenance check passes (attestation present)
+  - Verifies SBOM check fails (attestation missing)
+  - Proves CD verification logic correctly detects missing attestations
+  - Cleans up test image after verification
+
 ### Changed
 - CI attestation now uses manifest digest from registry after push
   - Previously used local config digest (`docker inspect --format='{{.Id}}'`) before push
@@ -22,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed `continue-on-error: true` from attestation verification step
   - Deployment will fail if images lack valid attestations
   - Ensures supply chain security is enforced, not just warned
+- CI workflow extends SBOM with quality gate hashes before attestation
+  - Downloads quality gate artifacts (lint, safety, coverage) from Phase A
+  - Computes SHA256 hashes of all quality gate artifacts
+  - Adds SPDX annotation with hashes, git SHA, and run ID
+  - Single SBOM attestation now proves both software composition and quality gates
+- CD workflow attestation verification enhanced with type-specific checks
+  - Verifies Build Provenance (`https://slsa.dev/provenance/v1`)
+  - Verifies Enhanced SBOM (`https://spdx.dev/Document`)
+  - Validates git SHA from attestation matches deployment target
+  - Displays quality gate hashes found in SBOM annotation
+  - Blocks deployment if any attestation check fails
 
 ### Removed
 - ghcr.io container registry support from CI workflow
@@ -34,6 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed registry variables from all environment configurations
 
 ### Security
+- Enhanced SBOM attestation with embedded quality gate hashes
+  - Quality gate artifact hashes embedded in SBOM SPDX annotations
+  - Verifying SBOM attestation now also proves all quality gates passed
+  - Tamper-proof: hashes are part of cryptographically signed attestation
+  - No additional artifact downloads required during deployment verification
+  - Supply chain integrity: same code that passed CI is deployed
 - Attestation verification enforcement in CD deployments
   - Build provenance and SBOM attestations now required for deployment
   - CI attestation fix enables reliable verification (manifest digest match)

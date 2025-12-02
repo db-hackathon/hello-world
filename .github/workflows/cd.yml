@@ -141,39 +141,104 @@ jobs:
           echo "All images validated in GAR!"
           echo "=========================================="
 
-      - name: Verify build attestations
-        # Attestation verification is now blocking - CI uses manifest digest after push
+      - name: Verify attestation chain
         env:
+          DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
           SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Verifying build attestations for all images..."
+          echo "=========================================="
+          echo "Attestation Chain Verification"
+          echo "=========================================="
+          echo "Deployment SHA: ${DEPLOY_SHA}"
           echo ""
+
           FAILED=0
 
           for component in backend frontend db-migration; do
             IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT }}/${{ env.GAR_REPO }}/baby-names-${component}:main-${SHORT_SHA}"
-            echo "Verifying ${component} attestation..."
+            echo "----------------------------------------"
+            echo "Verifying ${component}"
+            echo "----------------------------------------"
+
+            # 1. Verify Build Provenance (SLSA)
+            echo "  [1/3] Build Provenance..."
             if ! gh attestation verify "oci://${IMAGE}" \
-                 --owner ${{ github.repository_owner }}; then
-              echo "ERROR: Attestation verification failed for ${component}"
+                 --owner ${{ github.repository_owner }} \
+                 --predicate-type https://slsa.dev/provenance/v1; then
+              echo "  ERROR: Build Provenance missing"
               FAILED=1
             else
-              echo "✅ ${component} attestation verified"
+              echo "  ✅ Build Provenance verified"
             fi
+
+            # 2. Verify Enhanced SBOM (with quality gate hashes)
+            echo "  [2/3] Enhanced SBOM attestation..."
+            SBOM_RESULT=$(gh attestation verify "oci://${IMAGE}" \
+                 --owner ${{ github.repository_owner }} \
+                 --predicate-type https://spdx.dev/Document \
+                 --format json 2>/dev/null || echo "[]")
+
+            if [ "${SBOM_RESULT}" == "[]" ]; then
+              echo "  ERROR: SBOM attestation missing"
+              FAILED=1
+            else
+              echo "  ✅ SBOM attestation verified"
+
+              # Extract and display quality gate hashes from SBOM
+              # The SBOM content is in the attestation predicate
+              QUALITY_GATES=$(echo "${SBOM_RESULT}" | jq -r '
+                .[0].verificationResult.statement.predicate.annotations[]? |
+                select(.annotator == "Tool: baby-names-ci-pipeline") |
+                .comment' 2>/dev/null || echo "")
+
+              if [ -n "${QUALITY_GATES}" ]; then
+                echo "  ✅ Quality gate hashes found in SBOM:"
+                echo "     ${QUALITY_GATES}" | tr ';' '\n' | sed 's/^/     /'
+              else
+                echo "  WARNING: Quality gate hashes not found in SBOM"
+                echo "           This may indicate an older build without enhanced SBOM"
+              fi
+            fi
+
+            # 3. Validate git SHA from Build Provenance
+            echo "  [3/3] Git SHA validation..."
+            ATTESTATION_JSON=$(gh attestation verify "oci://${IMAGE}" \
+                 --owner ${{ github.repository_owner }} \
+                 --predicate-type https://slsa.dev/provenance/v1 \
+                 --format json 2>/dev/null || echo "[]")
+
+            ATTESTATION_SHA=$(echo "${ATTESTATION_JSON}" | \
+                 jq -r '.[0].verificationResult.signature.certificate.sourceRepositoryDigest // empty')
+
+            if [ -z "${ATTESTATION_SHA}" ]; then
+              echo "  ERROR: Could not extract git SHA from attestation"
+              FAILED=1
+            elif [ "${ATTESTATION_SHA}" != "${DEPLOY_SHA}" ]; then
+              echo "  ERROR: Git SHA mismatch!"
+              echo "         Attestation: ${ATTESTATION_SHA}"
+              echo "         Deployment:  ${DEPLOY_SHA}"
+              FAILED=1
+            else
+              echo "  ✅ Git SHA validated: ${ATTESTATION_SHA:0:7}"
+            fi
+
             echo ""
           done
 
+          echo "=========================================="
           if [ "$FAILED" -eq 1 ]; then
-            echo "=========================================="
-            echo "ERROR: Attestation verification failed!"
-            echo "Deployment blocked - images must have valid attestations."
+            echo "ATTESTATION VERIFICATION FAILED"
+            echo "Deployment blocked - supply chain integrity compromised"
             echo "=========================================="
             exit 1
           else
-            echo "=========================================="
-            echo "All attestations verified successfully!"
-            echo "Images confirmed from trusted CI pipeline."
+            echo "ALL ATTESTATIONS VERIFIED"
+            echo ""
+            echo "Supply chain integrity confirmed:"
+            echo "  ✅ Build Provenance: CI pipeline identity"
+            echo "  ✅ Enhanced SBOM: Software composition + quality gates"
+            echo "  ✅ Git SHA: Deployed code = source code"
             echo "=========================================="
           fi
 

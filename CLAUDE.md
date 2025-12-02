@@ -1,673 +1,75 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working with this repository.
 
 ## Project Overview
 
-This is a three-tier web application demonstrating Infrastructure Deployment Platform (IDP) capabilities through composable products and reference applications.
+Three-tier web application demonstrating Infrastructure Deployment Platform (IDP) capabilities through composable products and reference applications.
 
 ## Repository Structure
 
 ```
 hello-world/
 ├── products/                    # IDP Products (composable infrastructure)
-│   └── k8s-cluster/
-│       └── local/              # Local Kubernetes using kind (Kubernetes in Docker)
-├── examples/                   # Reference Applications
-│   └── baby-names/             # Three-tier web application (COMPLETE)
-└── scripts/                    # Setup and utility scripts
+│   └── k8s-cluster/local/      # Local Kubernetes using kind
+├── examples/
+│   └── baby-names/             # Three-tier web app (Flask + PostgreSQL)
+├── terraform/                  # GCP infrastructure modules
+└── docs/agent/                 # Detailed reference docs (see below)
 ```
 
-## Completed Components
+## Quick Reference
 
-### IDP Products
+### Local Development
 
-#### K8s Cluster (Local Variant)
-- **Location**: `products/k8s-cluster/local/`
-- **Technology**: kind (Kubernetes in Docker)
-- **Status**: ✅ Complete
-- **Description**: Terraform-managed local Kubernetes cluster for development
-- **Key Features**:
-  - Configurable worker nodes
-  - Port mappings for ingress
-  - Namespace and service account creation
-  - Generates both admin and service account kubeconfigs
-
-**Usage**:
-```bash
-cd products/k8s-cluster/local
-terraform init
-terraform apply
-export KUBECONFIG=./kubeconfig
-kubectl get nodes
-```
-
-### Reference Applications
-
-#### Baby Names Rank Finder
-- **Location**: `examples/baby-names/`
-- **Status**: ✅ Complete with production-ready CI/CD
-- **Description**: Three-tier application using 2024 ONS baby names data with comprehensive security scanning and supply chain attestations
-
-**Architecture**:
-```
-Frontend (Flask) :8080
-    ↓
-Backend API (Flask) :5000
-    ↓
-PostgreSQL :5432
-```
-
-**Components**:
-- **Frontend**: Flask web app (Alpine-based, Python 3.11)
-- **Backend**: REST API with `/api/v1/names` endpoints (Alpine-based, Python 3.11)
-- **Database**: PostgreSQL 15 with Liquibase migrations
-- **Data**: Real 2024 ONS boys' baby names dataset (50 names)
-- **CI/CD**: Three-phase pipeline with Makefile orchestration
-- **Helm Chart**: Kubernetes deployment configuration (`helm/baby-names/`)
-
-**Container Security**:
-- Alpine Linux base images (zero CRITICAL vulnerabilities)
-- SBOM attestation (SPDX format via Syft)
-- Vulnerability scanning (Trivy)
-- Build provenance attestation
-
-**Quick Start**:
 ```bash
 cd examples/baby-names
-
-# Set Docker socket for Podman (WSL2)
-export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
-
-# Start all services
+export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock  # WSL2 only
 docker-compose up -d
-
-# Test the application
 curl http://localhost:8080/?name=Noah
-curl http://localhost:5000/api/v1/names/Muhammad
-
-# Stop services
-docker-compose down -v
 ```
 
-**Local CI/CD Execution**:
+### Run CI Locally
+
 ```bash
 cd examples/baby-names
-
-# Add required tools to PATH
-export PATH="$HOME/.local/bin:$PATH"
-
-# Run Phase A (quality gates)
-make phase-a  # Format check, lint, security scan, unit tests
-
-# Run Phase B (container operations)
-make phase-b  # Build, SBOM generation, vulnerability scan
-
-# Run complete CI pipeline
-make ci-local  # Executes both phases sequentially
-
-# Component-specific operations
-cd backend
-make format-check  # Check code formatting
-make lint         # Run linting
-make security-check  # Dependency vulnerability scan
-make test         # Run unit tests with coverage
-make build        # Build container
-make generate-sbom  # Generate SBOM
-make scan         # Scan for vulnerabilities
+make ci-local  # Format, lint, security, tests, build, scan
 ```
 
-**Testing**:
+### Run Tests
+
 ```bash
-# Backend unit tests (14 tests, 93% coverage)
-cd examples/baby-names/backend
-pytest tests/ -v --cov=. --cov-report=term
-
-# Frontend unit tests (7 tests, 99% coverage)
-cd examples/baby-names/frontend
-pytest tests/ -v --cov=. --cov-report=term
-
-# All tests run without requiring live database
-# Database connections are mocked via tests/conftest.py
+cd examples/baby-names/backend && pytest tests/ -v --cov=.
+cd examples/baby-names/frontend && pytest tests/ -v --cov=.
 ```
 
-**GKE Deployment**:
-```bash
-cd examples/baby-names/helm/baby-names
-
-# Deploy to GKE with IAM database authentication
-# NOTE: Namespace and ServiceAccount are created by Terraform (not Helm)
-helm upgrade --install baby-names . \
-  --namespace baby-names-staging \
-  --values values-staging.yaml \
-  --set backend.image.tag=main-abc123 \
-  --set frontend.image.tag=main-abc123 \
-  --set migration.image.tag=main-abc123
-
-# Verify deployment
-kubectl get pods -n baby-names-staging
-kubectl get ingress -n baby-names-staging
-```
-
-**Helm Chart Features**:
-- **IAM Database Authentication**: No passwords required, uses Google Cloud IAM
-- **Cloud SQL Proxy**: Automatic sidecar container for secure connections
-- **Workload Identity**: GKE pods authenticate to GCP via service accounts
-- **Helm Hooks**: Database migrations run automatically before deployment
-- **Health Probes**: Liveness and readiness checks for both services
-- **Ingress**: GCE ingress controller for external access
-- **Environment-specific values**: Separate values files for staging/production
-- **Terraform Integration**: Namespace, ServiceAccount, RBAC, and secrets created by Terraform
-
-## CI/CD Pipelines
-
-### CI Pipeline (`.github/workflows/ci.yml`)
-
-Three-phase pipeline with comprehensive attestations:
-
-**Phase A - Sequential Quality Gates (Fail-Fast)**:
-1. **Format & Lint** (backend, frontend)
-   - Ruff formatting check
-   - Ruff linting
-   - Generates and attests lint results
-2. **Dependency Security** (backend, frontend)
-   - Safety vulnerability scan
-   - Fails on CRITICAL vulnerabilities only
-   - Generates and attests security reports
-3. **Unit Tests** (backend, frontend)
-   - Pytest with coverage reporting
-   - 93% backend coverage, 99% frontend coverage
-   - Generates and attests coverage reports
-
-**Phase B - Parallel Build & Scan** (backend, frontend, db-migration):
-1. **Build**: Container image using Makefiles
-2. **SBOM Generation**: Syft (SPDX format)
-3. **Vulnerability Scan**: Trivy (CRITICAL severity)
-4. **Attestations**:
-   - SBOM attestation
-   - Scan results attestation
-   - Build provenance attestation
-5. **Push**: Registry push (non-PR only)
-6. **Job Summary**: Outputs container details (registry URL, digest) to GitHub Actions job summary
-
-**Phase C - Integration Tests**:
-1. **Service Deployment**: Start full stack with docker-compose
-2. **Health Checks**: Verify backend and frontend endpoints
-3. **Integration Testing**: Run pytest integration test suite
-4. **Cleanup**: Tear down docker-compose services
-
-**Key Features**:
-- All commands delegated to Makefiles for consistency
-- Local execution: `make ci-local`
-- GitHub Actions attestations for supply chain security
-- Alpine-based images with zero CRITICAL CVEs
-- Artifacts: lint results, security reports, coverage, SBOMs, scan results
-
-**Required Tools** (auto-installed in CI, manual for local):
-- Ruff 0.8.4 (linting/formatting)
-- Safety 2.3.5 (dependency scanning)
-- Syft (SBOM generation)
-- Trivy (container scanning)
-
-### CD Pipeline (`.github/workflows/cd.yml`)
-
-**Triggers**:
-- **Automatic**: Triggers after CI workflow completes successfully on `main` branch (via `workflow_run`)
-- **Manual**: Via `workflow_dispatch` with inputs for commit SHA, environment, and dry-run mode
-
-**Manual Deployment**:
-```bash
-# Dry-run: validate images exist without deploying
-gh workflow run cd.yml \
-  --field commit_sha=<full-40-char-sha> \
-  --field environment=staging \
-  --field dry_run=true
-
-# Actual deployment to staging
-gh workflow run cd.yml \
-  --field commit_sha=<full-40-char-sha> \
-  --field environment=staging \
-  --field dry_run=false
-
-# Production deployment (manual only)
-gh workflow run cd.yml \
-  --field commit_sha=<full-40-char-sha> \
-  --field environment=production \
-  --field dry_run=false
-```
-
-**Workflow Jobs**:
-1. **resolve-sha**: Determines deployment SHA and validates images exist
-   - Extracts SHA from CI workflow run or manual input
-   - Validates all 3 container images exist in ghcr.io registry
-   - Outputs dry-run summary when enabled
-2. **deploy-staging**: Deploys to GKE staging environment
-   - Runs automatically after CI success OR on manual staging trigger
-   - Skipped in dry-run mode
-3. **smoke-tests-staging**: Verifies deployment health
-4. **deploy-production**: Deploys to production (manual trigger only, stubbed)
-5. **smoke-tests-production**: Production health verification (stubbed)
-
-**Deployment to Staging** (automated after CI success):
-1. **Authentication**: Direct Workload Identity Federation (WIF) to GCP
-   - Uses GitHub OIDC tokens (no service account keys)
-   - Workload Identity Provider: `projects/785558430619/locations/global/workloadIdentityPools/github-2023/providers/github-2023`
-2. **GKE Access**: Install gke-gcloud-auth-plugin and get cluster credentials
-3. **Helm Deployment**: Deploy using `values-staging.yaml` with short SHA image tag (e.g., `main-817993c`)
-4. **Health Verification**: Check pod, service, and ingress status
-5. **Smoke Tests**:
-   - Frontend health endpoint
-   - Backend health endpoint (via frontend proxy)
-   - Critical user path (name lookup)
-
-**Dry-Run Mode**:
-- Validates all container images exist in registry
-- Shows deployment plan (commit SHA, environment, image tags)
-- Skips actual Helm deployment and smoke tests
-- Useful for validating workflow changes without affecting environments
-
-**Security Features**:
-- **Direct WIF**: Short-lived GitHub OIDC tokens, no long-lived credentials
-- **IAM Database Auth**: CloudSQL authentication via service account identity
-- **Workload Identity**: `hello-world-staging@extended-ascent-477308-m8.iam` bound to Kubernetes service account
-- **Cloud SQL Proxy**: Automatic IAM token refresh and secure connection
-
-**Target Infrastructure** (manually provisioned):
-- **GKE Cluster**: `hellow-world-manual` in `europe-west1` (private cluster with Workload Identity enabled)
-- **CloudSQL Instance**: `hello-world-manual` in `europe-west1`
-- **Namespace**: `baby-names-staging`
-- **Ingress**: GCE ingress at `gke-df4e635bf6a042d9a06ccadd5f88beab6860-254825841253.europe-west1.gke.goog`
-
-**Required Infrastructure Components**:
-- **Cloud NAT**: Router `nat-router` with NAT config `nat-config` in `europe-west1` for private cluster egress
-- **Cloud SQL Admin API**: Enabled via `gcloud services enable sqladmin.googleapis.com`
-- **CloudSQL IAM Authentication Flag**: `cloudsql.iam_authentication=on` enabled on CloudSQL instance
-- **GCP Service Account**: `hello-world-staging@extended-ascent-477308-m8.iam.gserviceaccount.com` with:
-  - `roles/cloudsql.client` (project-level)
-  - `roles/cloudsql.instanceUser` (project-level, conditional on resource tags)
-  - `roles/iam.workloadIdentityUser` (service account-level binding to K8s SA)
-- **IAM Database User**: `hello-world-staging@extended-ascent-477308-m8.iam` (CloudSQL IAM user) with PostgreSQL permissions:
-  - ALL PRIVILEGES on `baby_names` database
-  - CREATE permission on public schema
-  - Default privileges configured for future objects
-- **ImagePullSecret**: `ghcr-secret` in `baby-names-staging` namespace with GitHub PAT (read:packages scope)
-- **RBAC Permissions**: Role `migration-watcher` granting get/list/watch on pods/jobs to `baby-names-staging` service account
-
-**Production Deployment** (future):
-- Manual approval via GitHub Environments
-- Blue-green or canary deployment
-- Gradual traffic shifting
-- Automatic rollback on failure
-
-## Environment Setup
-
-### Prerequisites
-- Docker/Podman
-- Python 3.11+
-- Terraform 1.5+ (for k8s-cluster product)
-- kubectl (for k8s-cluster product)
-
-### Local CI Tools (Optional)
-For running the full CI pipeline locally:
-```bash
-# Install Syft (SBOM generation)
-curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b ~/.local/bin
-
-# Install Trivy (vulnerability scanning)
-curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ~/.local/bin
-
-# Add to PATH
-export PATH="$HOME/.local/bin:$PATH"
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-
-# Python tools (ruff, safety) are auto-installed by Makefiles
-```
-
-### Podman Configuration (WSL2)
-
-If using Podman instead of Docker:
-
-1. **Configure registry search**:
-```bash
-sudo tee /etc/containers/registries.conf.d/00-unqualified-search-registries.conf > /dev/null <<EOF
-unqualified-search-registries = ["docker.io"]
-EOF
-```
-
-2. **Set Docker socket environment variable**:
-```bash
-export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
-# Add to ~/.bashrc for persistence
-```
-
-3. **Verify setup**:
-```bash
-docker --version  # Should show: podman version X.X.X
-docker ps
-```
-
-## Development Workflow
-
-### Three-Tier Architecture Pattern
-
-All applications follow this structure:
-- **Presentation Layer**: UI/frontend components (Flask, HTML templates)
-- **Application Layer**: Business logic and API endpoints (Flask REST API)
-- **Data Layer**: Database interactions (PostgreSQL, Liquibase)
-
-### Adding New Applications
-
-1. Create directory under `examples/`
-2. Implement three tiers with clear separation
-3. Add `docker-compose.yml` for local development
-4. Create comprehensive tests (unit, integration, smoke)
-5. Add CI/CD workflows
-6. Document in README.md
-
-### Working with IDP Products
-
-IDP products are composable infrastructure components:
-- Each product has variants (e.g., `local`, `gcp`, `aws`)
-- Managed with Terraform
-- Outputs can be consumed by other products or applications
-- Follow the existing structure in `products/k8s-cluster/`
-
-## Terraform Infrastructure
-
-### GCP Infrastructure for Baby-Names Application
-
-**Location**: `terraform/`
-
-The baby-names application infrastructure is managed by Terraform modules for GCP and Kubernetes resources.
-
-**Module Structure**:
-```
-terraform/
-├── modules/
-│   ├── gcp-project-setup/      # APIs, Cloud NAT
-│   ├── gke-autopilot/          # GKE cluster
-│   ├── gcp-service-account/    # Service account, IAM
-│   ├── cloudsql/               # PostgreSQL instance
-│   ├── k8s-namespace/          # Namespace, RBAC, secrets
-│   └── database-bootstrap/     # PostgreSQL permissions
-└── environments/
-    └── staging/                # Staging environment config
-```
-
-**Key Features**:
-- **Modular Design**: Six reusable Terraform modules
-- **GKE Autopilot**: Managed Kubernetes with autoscaling
-- **CloudSQL IAM Auth**: Passwordless database authentication
-- **Workload Identity**: Secure GCP access for pods
-- **Database Bootstrap**: Automated PostgreSQL permission setup
-
-**Provisioning Time**: 20-30 minutes (GKE cluster takes longest)
-
-**Quick Start**:
-```bash
-# Prerequisites: Complete Terraform Executor Service Account setup
-# See: terraform/docs/TERRAFORM_EXECUTOR_SETUP.md
-
-cd terraform/environments/staging
-
-# Configure Terraform Cloud backend
-# Edit backend.tf with your organization name
-
-# Initialize and apply
-terraform login
-terraform init
-terraform plan
-terraform apply
-
-# Get cluster credentials
-terraform output -raw get_credentials_command | bash
-
-# Deploy application
-cd /home/sweeand/hello-world/examples/baby-names/helm/baby-names
-helm upgrade --install baby-names . \
-  --namespace baby-names-staging \
-  --values values-staging.yaml \
-  --wait --timeout 15m
-```
-
-**Documentation**:
-- [Terraform Modules README](../terraform/README.md) - Overview of all modules
-- [Terraform Executor Setup](../terraform/docs/TERRAFORM_EXECUTOR_SETUP.md) - Service account configuration
-- [Provisioning Guide](../terraform/docs/PROVISIONING_GUIDE.md) - Step-by-step infrastructure setup
-
-**Resources Created**:
-- GKE Autopilot cluster (regional, private nodes)
-- CloudSQL PostgreSQL 17 instance
-- Cloud NAT (for private cluster egress)
-- GCP Service Account (with Workload Identity)
-- Kubernetes namespace, ServiceAccount, RBAC
-- ImagePullSecret for ghcr.io
-- Database permissions via temporary pod
-
-**Critical Configuration**:
-- **CloudSQL IAM Auth Flag**: `cloudsql.iam_authentication=on` (MANDATORY, triggers restart)
-- **Workload Identity**: Two-way binding between K8s SA and GCP SA
-- **Database Permissions**: Granted via Terraform (not Liquibase, due to chicken-and-egg)
-- **Private Cluster**: Requires Cloud NAT for container registry access
-
-**Estimated Monthly Cost** (Staging):
-- GKE Autopilot: ~$70-120
-- CloudSQL: ~$100-150
-- Cloud NAT: ~$45-60
-- Ingress: ~$18-25
-- **Total**: ~$233-355/month
-
-**Infrastructure vs Application** (Clear Separation):
-- **Terraform Creates**: GCP infrastructure + K8s prerequisites (Namespace, ServiceAccount, RBAC, ImagePullSecret)
-- **Helm Creates**: Application workloads only (Deployments, Services, Jobs, Ingress)
-- **No Overlap**: Helm does NOT create Namespace or ServiceAccount - Terraform owns these
-- **CD Pipeline**: Handles Helm deployments via GitHub Actions
-- **Terraform Output**: Use `terraform output -raw helm_values_yaml` to generate Helm values
-
-**Next Steps After Terraform**:
-1. Terraform provisions infrastructure (this section)
-2. Helm deploys application containers
-3. Liquibase runs database migrations
-4. Application is accessible via ingress
-
-## Known Issues and Fixes
-
-### Podman on WSL2
-
-**Issue**: Docker commands fail with permission denied
-**Solution**: Set `DOCKER_HOST` environment variable:
-```bash
-export DOCKER_HOST=unix:///run/user/1000/podman/podman.sock
-```
-
-**Issue**: Unqualified image names not found
-**Solution**: Configure `/etc/containers/registries.conf.d/00-unqualified-search-registries.conf`
-
-### Database Migrations
-
-**Issue**: PostgreSQL COPY command fails in containerized environments
-**Solution**: Use INSERT statements instead of COPY FROM for CSV data loading
-
-### GKE Deployment Troubleshooting
-
-**Issue**: ImagePullBackOff with "dial tcp ... i/o timeout" errors
-**Root Cause**: Private GKE cluster nodes cannot reach external registries (ghcr.io) without Cloud NAT
-**Solution**: Configure Cloud NAT for private cluster egress:
-```bash
-gcloud compute routers create nat-router --network default --region europe-west1 --project <PROJECT_ID>
-gcloud compute routers nats create nat-config \
-  --router nat-router \
-  --region europe-west1 \
-  --nat-all-subnet-ip-ranges \
-  --auto-allocate-nat-external-ips \
-  --project <PROJECT_ID>
-```
-
-**Issue**: ImagePullBackOff with "401 Unauthorized" or "403 Forbidden" errors
-**Root Cause**: Kubernetes cluster lacks credentials to pull from private GitHub Container Registry
-**Solution**: Create imagePullSecret and patch service account:
-```bash
-# Create secret with GitHub PAT (read:packages scope)
-kubectl create secret docker-registry ghcr-secret \
-  --docker-server=ghcr.io \
-  --docker-username=<GITHUB_USERNAME> \
-  --docker-password=<GITHUB_PAT> \
-  --docker-email=noreply@github.com \
-  -n <NAMESPACE>
-
-# Patch service account
-kubectl patch serviceaccount <SERVICE_ACCOUNT_NAME> \
-  -n <NAMESPACE> \
-  -p '{"imagePullSecrets": [{"name": "ghcr-secret"}]}'
-```
-
-**Issue**: ImagePullBackOff with "not found" errors
-**Root Cause**: CI workflow pushes images with `main` tag, but CD workflow tries to use SHA-based tags
-**Solution**: Update Helm deployment to use `main` tag instead of commit SHA:
-```bash
-helm upgrade --install baby-names . \
-  --set backend.image.tag=main \
-  --set frontend.image.tag=main \
-  --set migration.image.tag=main
-```
-
-**Issue**: Cloud SQL Proxy error: "Permission 'iam.serviceAccounts.getAccessToken' denied"
-**Root Cause**: Kubernetes service account not bound to GCP service account via Workload Identity
-**Solution**: Create IAM policy binding:
-```bash
-gcloud iam service-accounts add-iam-policy-binding <GCP_SA_EMAIL> \
-  --role roles/iam.workloadIdentityUser \
-  --member "serviceAccount:<PROJECT_ID>.svc.id.goog[<NAMESPACE>/<K8S_SA_NAME>]" \
-  --project <PROJECT_ID>
-```
-
-**Issue**: Cloud SQL Proxy error: "Cloud SQL Admin API has not been used"
-**Root Cause**: Cloud SQL Admin API is disabled in the project
-**Solution**: Enable the API:
-```bash
-gcloud services enable sqladmin.googleapis.com --project=<PROJECT_ID>
-```
-
-**Issue**: Database authentication error: "Cloud SQL IAM service account authentication failed"
-**Root Cause**: IAM authentication not enabled on CloudSQL instance
-**Solution**: Enable IAM authentication flag on CloudSQL instance:
-```bash
-gcloud sql instances patch <INSTANCE_NAME> \
-  --database-flags=cloudsql.iam_authentication=on \
-  --project=<PROJECT_ID>
-```
-**Note**: Instance will restart to apply the flag.
-
-**Issue**: Database authentication error: "Cloud SQL IAM service account authentication failed" (after IAM flag enabled)
-**Root Cause**: IAM database user doesn't exist or lacks PostgreSQL permissions
-**Solution**: Create IAM database user and grant permissions:
-```bash
-# Create IAM database user
-gcloud sql users create "<GCP_SA_EMAIL>" \
-  --instance=<INSTANCE_NAME> \
-  --type=CLOUD_IAM_SERVICE_ACCOUNT \
-  --project <PROJECT_ID>
-
-# Grant PostgreSQL permissions (connect using postgres user)
-# Method 1: Using kubectl with Cloud SQL Proxy pod
-kubectl run psql-client --rm -i --namespace=<NAMESPACE> \
-  --image=postgres:15-alpine \
-  --serviceaccount=<K8S_SA_NAME> \
-  --overrides='{"spec":{"containers":[{"name":"psql","image":"postgres:15-alpine","command":["sleep","3600"]},{"name":"cloud-sql-proxy","image":"gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.1.0","args":["<PROJECT_ID>:<REGION>:<INSTANCE_NAME>","--port=5432"],"securityContext":{"runAsNonRoot":true,"allowPrivilegeEscalation":false}}]}}'
-
-# Inside the pod:
-PGPASSWORD=<POSTGRES_PASSWORD> psql -h localhost -U postgres -d postgres -c "CREATE DATABASE baby_names;"
-PGPASSWORD=<POSTGRES_PASSWORD> psql -h localhost -U postgres -d baby_names <<EOF
-GRANT ALL PRIVILEGES ON DATABASE baby_names TO "<GCP_SA_EMAIL>";
-GRANT ALL ON SCHEMA public TO "<GCP_SA_EMAIL>";
-GRANT CREATE ON SCHEMA public TO "<GCP_SA_EMAIL>";
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "<GCP_SA_EMAIL>";
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "<GCP_SA_EMAIL>";
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO "<GCP_SA_EMAIL>";
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO "<GCP_SA_EMAIL>";
-EOF
-```
-
-**Issue**: Init containers stuck waiting for migration job to complete
-**Root Cause**: Migration job with Cloud SQL Proxy sidecar never reaches "Complete" status (sidecar doesn't exit)
-**Solution**: Update init containers to check migration pod container exit code instead of job completion, and create RBAC permissions:
-```bash
-# Create RBAC permissions for init containers
-kubectl create role migration-watcher --verb=get,list,watch --resource=pods,jobs -n <NAMESPACE>
-kubectl create rolebinding migration-watcher-binding \
-  --role=migration-watcher \
-  --serviceaccount=<NAMESPACE>:<SERVICE_ACCOUNT_NAME> \
-  -n <NAMESPACE>
-
-# Init containers now check: kubectl get pod $POD_NAME -o jsonpath='{.status.containerStatuses[?(@.name=="migration")].state.terminated.exitCode}'
-```
-
-## Future Development
-
-### Planned IDP Products
-- PostgreSQL Database product (managed database instances)
-- Three Tier Web App product (deployment template)
-- Ingress/Load Balancer product
-- Monitoring/Observability product
-
-### Planned Applications
-- Additional reference applications demonstrating different patterns
-- Integration examples with various IDP products
-- Production-ready deployment configurations
-
-## Documentation
-
-- Project README: `README.md`
-- Baby Names App: `examples/baby-names/README.md`
-- Each IDP product includes its own README with usage instructions
+## Key Patterns
+
+- **Containers**: Alpine Linux base, zero CRITICAL CVEs
+- **Auth**: IAM database authentication, Workload Identity
+- **Infra**: Terraform creates namespace/SA/RBAC; Helm creates workloads only
+- **CI/CD**: Three-phase pipeline with supply chain attestations
 
 ## Contributing
 
-### REQUIRED: Update CHANGELOG Before Commit
+**Every commit MUST include CHANGELOG updates** in `examples/baby-names/CHANGELOG.md` following [Keep a Changelog v1.1.0](https://keepachangelog.com/en/1.1.0/).
 
-**Every commit MUST include CHANGELOG updates** following [Keep a Changelog v1.1.0](https://keepachangelog.com/en/1.1.0/) format.
+Categories: Added, Changed, Deprecated, Removed, Fixed, Security
 
-For the baby-names application, update `examples/baby-names/CHANGELOG.md`:
+## Detailed Documentation
 
-1. **Add entries under `[Unreleased]` section** in the appropriate category:
-   - **Added**: New features
-   - **Changed**: Changes to existing functionality
-   - **Deprecated**: Soon-to-be removed features
-   - **Removed**: Removed features
-   - **Fixed**: Bug fixes
-   - **Security**: Security improvements
+For comprehensive reference information, consult these docs:
 
-2. **Format**: Use present tense, be specific
-   ```markdown
-   ### Added
-   - New `/api/v2/names` endpoint with pagination support
+| Topic | Document |
+|-------|----------|
+| Architecture & patterns | [docs/agent/architecture.md](docs/agent/architecture.md) |
+| Local development setup | [docs/agent/local-development.md](docs/agent/local-development.md) |
+| CI/CD pipeline details | [docs/agent/ci-cd-pipeline.md](docs/agent/ci-cd-pipeline.md) |
+| GKE deployment | [docs/agent/gke-deployment.md](docs/agent/gke-deployment.md) |
+| Terraform infrastructure | [docs/agent/terraform-infrastructure.md](docs/agent/terraform-infrastructure.md) |
+| Troubleshooting | [docs/agent/troubleshooting.md](docs/agent/troubleshooting.md) |
 
-   ### Fixed
-   - Database connection pool exhaustion under high load
-   ```
-
-3. **Before Release**: Move `[Unreleased]` items to a new version section with date
-
-**Why**: CHANGELOGs provide:
-- Clear history of what changed and why
-- Easy communication with users and team members
-- Foundation for release notes
-- Audit trail for compliance
-
-### Development Workflow
-
-When working on this repository:
-1. **Update CHANGELOG.md first** - Document what you're about to change
-2. Test locally with docker-compose before committing
-3. Run CI pipeline locally: `cd examples/baby-names && make ci-local`
-4. Or run individual checks:
-   - Format code: `make format`
-   - Check formatting: `make format-check`
-   - Lint code: `make lint`
-   - Security scan: `make security-check`
-   - Run tests: `make test`
-5. Ensure all tests pass (21 total tests, 93%+ coverage)
-6. Update other documentation if needed (CLAUDE.md, README.md)
-7. Follow the three-tier architecture pattern for applications
-8. Use Terraform for all infrastructure code
-9. Use Alpine-based container images for minimal attack surface
+Also see:
+- [Terraform Modules](terraform/README.md)
+- [Terraform Executor Setup](terraform/docs/TERRAFORM_EXECUTOR_SETUP.md)
+- [Baby Names README](examples/baby-names/README.md)
