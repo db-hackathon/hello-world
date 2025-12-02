@@ -432,10 +432,15 @@ jobs:
       - name: Configure Docker for GAR
         run: gcloud auth configure-docker ${{ env.REGISTRY_GAR }} --quiet
 
-      # Use unique image names per run to avoid attestation pollution from previous runs
+      # Use unique image names AND content per run to avoid attestation pollution.
+      # The LABEL ensures each build produces a different digest.
       - name: Create test image without SBOM
         run: |
-          echo "FROM alpine:3.19" > /tmp/Dockerfile.test
+          cat > /tmp/Dockerfile.test <<EOF
+          FROM alpine:3.19
+          LABEL org.opencontainers.image.revision="${{ github.sha }}"
+          LABEL ci.run_id="${{ github.run_id }}"
+          EOF
           docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }} -f /tmp/Dockerfile.test /tmp
           docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }}
           DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom-${{ github.run_id }} -v | jq -r '.Descriptor.digest')
@@ -481,7 +486,12 @@ jobs:
 
       - name: Create test image with plain SBOM (no quality gates)
         run: |
-          echo "FROM alpine:3.19" > /tmp/Dockerfile.plain
+          cat > /tmp/Dockerfile.plain <<EOF
+          FROM alpine:3.19
+          LABEL org.opencontainers.image.revision="${{ github.sha }}"
+          LABEL ci.run_id="${{ github.run_id }}"
+          LABEL ci.test_type="plain-sbom"
+          EOF
           docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }} -f /tmp/Dockerfile.plain /tmp
           docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }}
           PLAIN_DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }} -v | jq -r '.Descriptor.digest')
