@@ -608,6 +608,153 @@ jobs:
           echo "  ✅ Strict mode → would block deployment"
           echo "=========================================="
 
+      - name: Create test image with partial quality gates (missing lint)
+        run: |
+          cat > /tmp/Dockerfile.partial <<EOF
+          FROM alpine:3.19
+          LABEL org.opencontainers.image.revision="${{ github.sha }}"
+          LABEL ci.run_id="${{ github.run_id }}"
+          LABEL ci.test_type="partial-gates"
+          EOF
+          docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:partial-gates-${{ github.run_id }} -f /tmp/Dockerfile.partial /tmp
+          docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:partial-gates-${{ github.run_id }}
+          PARTIAL_DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:partial-gates-${{ github.run_id }} -v | jq -r '.Descriptor.digest')
+          echo "PARTIAL_DIGEST=$PARTIAL_DIGEST" >> $GITHUB_ENV
+
+          # Create SBOM with partial quality gates (missing lint)
+          # This simulates a build that skipped linting
+          cat > /tmp/partial-sbom.spdx.json <<'SBOMEOF'
+          {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "name": "attestation-test-partial",
+            "documentNamespace": "https://spdx.org/spdxdocs/attestation-test-partial",
+            "creationInfo": {
+              "created": "2025-12-02T00:00:00Z",
+              "creators": ["Tool: syft-test"]
+            },
+            "packages": [{
+              "SPDXID": "SPDXRef-Package-alpine",
+              "name": "alpine",
+              "versionInfo": "3.19",
+              "downloadLocation": "NOASSERTION"
+            }],
+            "annotations": [{
+              "annotationDate": "2025-12-02T00:00:00Z",
+              "annotationType": "OTHER",
+              "annotator": "Tool: baby-names-ci-pipeline",
+              "comment": "quality_gates={\"safety\": \"sha256:abc123\", \"coverage\": \"sha256:def456\", \"trivy\": \"sha256:ghi789\"};git_sha=test123;run_id=99999"
+            }]
+          }
+          SBOMEOF
+
+      - name: Attest partial SBOM (missing lint gate)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-name: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test
+          subject-digest: ${{ env.PARTIAL_DIGEST }}
+          sbom-path: /tmp/partial-sbom.spdx.json
+
+      - name: Attest Build Provenance for partial image
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test
+          subject-digest: ${{ env.PARTIAL_DIGEST }}
+
+      - name: Test partial quality gates are detected (missing lint)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:partial-gates-${{ github.run_id }}"
+
+          echo "=========================================="
+          echo "Test 4: SBOM with partial quality gates"
+          echo "=========================================="
+          echo ""
+          echo "This test verifies that images with SOME but not ALL"
+          echo "required quality gates are correctly rejected in strict mode."
+          echo ""
+
+          echo "Test 4a: Build Provenance should PASS..."
+          if gh attestation verify "oci://${IMAGE}" \
+               --owner ${{ github.repository_owner }} \
+               --predicate-type https://slsa.dev/provenance/v1; then
+            echo "✅ Build Provenance PASSED (expected)"
+          else
+            echo "ERROR: Build Provenance should have passed!"
+            exit 1
+          fi
+
+          echo ""
+          echo "Test 4b: SBOM attestation should PASS..."
+          SBOM_RESULT=$(gh attestation verify "oci://${IMAGE}" \
+               --owner ${{ github.repository_owner }} \
+               --predicate-type https://spdx.dev/Document \
+               --format json 2>/dev/null || echo "[]")
+
+          if [ "${SBOM_RESULT}" == "[]" ]; then
+            echo "ERROR: SBOM should have passed!"
+            exit 1
+          else
+            echo "✅ SBOM attestation PASSED (expected)"
+          fi
+
+          echo ""
+          echo "Test 4c: Extract quality gates from SBOM..."
+          QUALITY_GATES=$(echo "${SBOM_RESULT}" | jq -r '
+            .[0].verificationResult.statement.predicate.annotations[]? |
+            select(.annotator == "Tool: baby-names-ci-pipeline") |
+            .comment' 2>/dev/null || echo "")
+
+          if [ -n "${QUALITY_GATES}" ]; then
+            echo "✅ Quality gates found: ${QUALITY_GATES}"
+          else
+            echo "ERROR: Quality gates should be present!"
+            exit 1
+          fi
+
+          echo ""
+          echo "Test 4d: Validate required gates (simulating CD strict mode)..."
+
+          # Extract quality_gates JSON from the comment string
+          QG_JSON=$(echo "${QUALITY_GATES}" | grep -oP 'quality_gates=\K\{[^}]+\}' || echo "{}")
+          echo "Extracted gates JSON: ${QG_JSON}"
+
+          # Check for all required gates for backend/frontend
+          REQUIRED_GATES="lint safety coverage trivy"
+          MISSING_GATES=""
+
+          for gate in ${REQUIRED_GATES}; do
+            if echo "${QG_JSON}" | jq -e ".${gate}" > /dev/null 2>&1; then
+              echo "  ✓ ${gate}: present"
+            else
+              echo "  ✗ ${gate}: MISSING"
+              MISSING_GATES="${MISSING_GATES} ${gate}"
+            fi
+          done
+
+          echo ""
+          if [ -n "${MISSING_GATES}" ]; then
+            echo "✅ Missing gates correctly detected:${MISSING_GATES}"
+            echo ""
+            echo "In strict mode, this image would be REJECTED because"
+            echo "it lacks the 'lint' quality gate hash in the SBOM."
+          else
+            echo "ERROR: Should have detected missing 'lint' gate!"
+            exit 1
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "TEST 4 PASSED - Partial Quality Gates Detection"
+          echo ""
+          echo "Verified:"
+          echo "  ✅ SBOM with partial gates → attestation passes"
+          echo "  ✅ Missing 'lint' gate → correctly detected"
+          echo "  ✅ Strict mode → would block deployment"
+          echo "=========================================="
+
       - name: Cleanup test images
         if: always()
         run: |
@@ -616,6 +763,9 @@ jobs:
             --quiet --delete-tags || true
           gcloud artifacts docker images delete \
             ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom-${{ github.run_id }} \
+            --quiet --delete-tags || true
+          gcloud artifacts docker images delete \
+            ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:partial-gates-${{ github.run_id }} \
             --quiet --delete-tags || true
 
   ##

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Partial quality gates detection test in CI workflow (Test 4)
+  - Creates test image with SBOM containing some but not all required gates
+  - SBOM includes safety, coverage, trivy but missing lint hash
+  - Validates that CD strict mode would detect and reject partial compliance
+  - Tests the new per-gate validation logic in CD workflow
 - Negative test for missing quality gate hashes in CI workflow
   - Creates test image with plain SBOM (no quality gate annotations)
   - Verifies quality gate extraction correctly returns empty
@@ -25,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cleans up test image after verification
 
 ### Changed
+- CD workflow strict mode now validates individual quality gates
+  - In strict mode, validates that all required gates are present (not just "any gates")
+  - Different requirements per component type: db-migration needs trivy only
+  - backend/frontend require lint, safety, coverage, trivy
+  - Reports specific missing gates (e.g., "Missing required gates: lint")
 - CI attestation now uses manifest digest from registry after push
   - Previously used local config digest (`docker inspect --format='{{.Id}}'`) before push
   - Now uses `docker manifest inspect` after push to get registry manifest digest

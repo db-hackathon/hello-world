@@ -206,6 +206,34 @@ jobs:
               if [ -n "${QUALITY_GATES}" ]; then
                 echo "  ✅ Quality gate hashes found in SBOM:"
                 echo "     ${QUALITY_GATES}" | tr ';' '\n' | sed 's/^/     /'
+
+                # In strict mode, validate all required gates are present
+                if [ "${STRICT_QUALITY_GATES}" == "true" ]; then
+                  # Extract quality_gates JSON from the comment string
+                  QG_JSON=$(echo "${QUALITY_GATES}" | grep -oP 'quality_gates=\K\{[^}]+\}' || echo "{}")
+
+                  # Define required gates per component type
+                  if [ "${component}" == "db-migration" ]; then
+                    REQUIRED_GATES="trivy"
+                  else
+                    REQUIRED_GATES="lint safety coverage trivy"
+                  fi
+
+                  MISSING_GATES=""
+                  for gate in ${REQUIRED_GATES}; do
+                    if ! echo "${QG_JSON}" | jq -e ".${gate}" > /dev/null 2>&1; then
+                      MISSING_GATES="${MISSING_GATES} ${gate}"
+                    fi
+                  done
+
+                  if [ -n "${MISSING_GATES}" ]; then
+                    echo "  ❌ ERROR: Missing required quality gates:${MISSING_GATES}"
+                    echo "           Required for ${component}: ${REQUIRED_GATES}"
+                    FAILED=1
+                  else
+                    echo "  ✅ All required quality gates verified"
+                  fi
+                fi
               else
                 if [ "${STRICT_QUALITY_GATES}" == "true" ]; then
                   echo "  ❌ ERROR: Quality gate hashes not found in SBOM"
