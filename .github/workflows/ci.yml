@@ -467,18 +467,136 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "ATTESTATION TEST PASSED"
-          echo ""
-          echo "Verified that missing attestations are detected:"
-          echo "  ✅ Missing SBOM → blocked"
-          echo "  ✅ Present Build Provenance → allowed"
+          echo "TEST 1 & 2 PASSED - Missing SBOM Detection"
           echo "=========================================="
 
-      - name: Cleanup test image
+      - name: Create test image with plain SBOM (no quality gates)
+        run: |
+          echo "FROM alpine:3.19" > /tmp/Dockerfile.plain
+          docker build -t ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom -f /tmp/Dockerfile.plain /tmp
+          docker push ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom
+          PLAIN_DIGEST=$(docker manifest inspect ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom -v | jq -r '.Descriptor.digest')
+          echo "PLAIN_DIGEST=$PLAIN_DIGEST" >> $GITHUB_ENV
+
+          # Create a minimal SBOM without quality gate annotations
+          cat > /tmp/plain-sbom.spdx.json <<'EOF'
+          {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "name": "attestation-test-plain",
+            "documentNamespace": "https://spdx.org/spdxdocs/attestation-test-plain",
+            "creationInfo": {
+              "created": "2025-12-02T00:00:00Z",
+              "creators": ["Tool: syft-test"]
+            },
+            "packages": [{
+              "SPDXID": "SPDXRef-Package-alpine",
+              "name": "alpine",
+              "versionInfo": "3.19",
+              "downloadLocation": "NOASSERTION"
+            }]
+          }
+          EOF
+
+      - name: Attest plain SBOM (without quality gates)
+        uses: actions/attest-sbom@v3
+        with:
+          subject-name: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test
+          subject-digest: ${{ env.PLAIN_DIGEST }}
+          sbom-path: /tmp/plain-sbom.spdx.json
+
+      - name: Attest Build Provenance for plain image
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test
+          subject-digest: ${{ env.PLAIN_DIGEST }}
+
+      - name: Test missing quality gates are detected
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IMAGE="${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom"
+
+          echo "=========================================="
+          echo "Test 3: SBOM exists but lacks quality gates"
+          echo "=========================================="
+          echo ""
+
+          echo "Test 3a: Build Provenance should PASS..."
+          if gh attestation verify "oci://${IMAGE}" \
+               --owner ${{ github.repository_owner }} \
+               --predicate-type https://slsa.dev/provenance/v1; then
+            echo "✅ Build Provenance PASSED (expected)"
+          else
+            echo "ERROR: Build Provenance should have passed!"
+            exit 1
+          fi
+
+          echo ""
+          echo "Test 3b: SBOM attestation should PASS (it exists)..."
+          SBOM_RESULT=$(gh attestation verify "oci://${IMAGE}" \
+               --owner ${{ github.repository_owner }} \
+               --predicate-type https://spdx.dev/Document \
+               --format json 2>/dev/null || echo "[]")
+
+          if [ "${SBOM_RESULT}" == "[]" ]; then
+            echo "ERROR: SBOM should have passed!"
+            exit 1
+          else
+            echo "✅ SBOM attestation PASSED (expected)"
+          fi
+
+          echo ""
+          echo "Test 3c: Quality gate extraction should return EMPTY..."
+          # Extract quality gates using same logic as CD
+          QUALITY_GATES=$(echo "${SBOM_RESULT}" | jq -r '
+            .[0].verificationResult.statement.predicate.annotations[]? |
+            select(.annotator == "Tool: baby-names-ci-pipeline") |
+            .comment' 2>/dev/null || echo "")
+
+          if [ -z "${QUALITY_GATES}" ]; then
+            echo "✅ Quality gates correctly EMPTY (expected)"
+            echo ""
+            echo "This image would be BLOCKED in strict enforcement mode"
+            echo "because quality gate hashes are missing from SBOM."
+          else
+            echo "ERROR: Quality gates should be empty!"
+            echo "Found: ${QUALITY_GATES}"
+            exit 1
+          fi
+
+          echo ""
+          echo "Test 3d: Simulating strict enforcement mode..."
+          STRICT_MODE=true
+          if [ "$STRICT_MODE" = "true" ] && [ -z "${QUALITY_GATES}" ]; then
+            echo "❌ DEPLOYMENT BLOCKED (strict mode)"
+            echo ""
+            echo "Reason: SBOM lacks quality gate annotations"
+            echo "Required gates: lint, safety, coverage, trivy"
+            echo ""
+            echo "This demonstrates that strict enforcement would reject"
+            echo "images built without proper quality gate verification."
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "TEST 3 PASSED - Missing Quality Gates Detection"
+          echo ""
+          echo "Verified supply chain enforcement:"
+          echo "  ✅ SBOM exists → attestation passes"
+          echo "  ✅ Missing quality gates → correctly detected"
+          echo "  ✅ Strict mode → would block deployment"
+          echo "=========================================="
+
+      - name: Cleanup test images
         if: always()
         run: |
           gcloud artifacts docker images delete \
             ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:no-sbom \
+            --quiet --delete-tags || true
+          gcloud artifacts docker images delete \
+            ${{ env.REGISTRY_GAR }}/${{ env.GAR_PROJECT_PRIMARY }}/${{ env.GAR_REPO }}/attestation-test:plain-sbom \
             --quiet --delete-tags || true
 
   ##

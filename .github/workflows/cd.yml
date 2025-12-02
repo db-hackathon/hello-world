@@ -32,6 +32,11 @@ on:
         required: false
         type: boolean
         default: false
+      strict_quality_gates:
+        description: 'Strict mode: fail if quality gate hashes missing from SBOM'
+        required: false
+        type: boolean
+        default: false
 
 env:
   # Google Artifact Registry (primary registry)
@@ -146,11 +151,17 @@ jobs:
           DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
           SHORT_SHA: ${{ steps.resolve.outputs.short_sha }}
           GH_TOKEN: ${{ github.token }}
+          STRICT_QUALITY_GATES: ${{ inputs.strict_quality_gates || 'false' }}
         run: |
           echo "=========================================="
           echo "Attestation Chain Verification"
           echo "=========================================="
           echo "Deployment SHA: ${DEPLOY_SHA}"
+          if [ "${STRICT_QUALITY_GATES}" == "true" ]; then
+            echo "Mode: STRICT (quality gates required)"
+          else
+            echo "Mode: PERMISSIVE (quality gates optional)"
+          fi
           echo ""
 
           FAILED=0
@@ -196,8 +207,15 @@ jobs:
                 echo "  ✅ Quality gate hashes found in SBOM:"
                 echo "     ${QUALITY_GATES}" | tr ';' '\n' | sed 's/^/     /'
               else
-                echo "  WARNING: Quality gate hashes not found in SBOM"
-                echo "           This may indicate an older build without enhanced SBOM"
+                if [ "${STRICT_QUALITY_GATES}" == "true" ]; then
+                  echo "  ❌ ERROR: Quality gate hashes not found in SBOM"
+                  echo "           Strict mode requires quality gates: lint, safety, coverage, trivy"
+                  FAILED=1
+                else
+                  echo "  WARNING: Quality gate hashes not found in SBOM"
+                  echo "           This may indicate an older build without enhanced SBOM"
+                  echo "           (Use strict_quality_gates=true to enforce)"
+                fi
               fi
             fi
 

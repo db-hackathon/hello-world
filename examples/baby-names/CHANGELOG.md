@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Negative test for missing quality gate hashes in CI workflow
+  - Creates test image with plain SBOM (no quality gate annotations)
+  - Verifies quality gate extraction correctly returns empty
+  - Demonstrates strict enforcement mode would block deployment
+  - Validates the enhanced SBOM annotation detection works correctly
+- Strict quality gate enforcement mode in CD workflow (`strict_quality_gates` input)
+  - Optional flag to fail deployment if quality gates missing from SBOM
+  - Blocks deployment when quality gate hashes not found in SBOM annotations
+  - Default: permissive (warning only) for backward compatibility
 - Attestation verification test job in CI workflow
   - Creates test image with intentionally missing SBOM attestation
   - Verifies Build Provenance check passes (attestation present)

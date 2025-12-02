@@ -90,6 +90,12 @@ gh workflow run cd.yml \
   --field commit_sha=<full-40-char-sha> \
   --field environment=staging \
   --field dry_run=false
+
+# Strict mode: fail if quality gates missing from SBOM
+gh workflow run cd.yml \
+  --field commit_sha=<full-40-char-sha> \
+  --field environment=staging \
+  --field strict_quality_gates=true
 ```
 
 ### Workflow Jobs
