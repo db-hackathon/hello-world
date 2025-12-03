@@ -8,12 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Partial quality gates detection test in CI workflow (Test 4)
+- Separate on-demand workflow for attestation verification tests (`workflow-tests.yml`)
+  - Moved from CI workflow to reduce regular build time (~1.5 min saved per CI run)
+  - Supports selective test execution via `test_selection` input
+  - Options: all, missing-sbom, missing-quality-gates, partial-quality-gates
+  - Run manually via workflow_dispatch when testing workflow changes
+  - Includes all 4 tests: missing SBOM, missing quality gates, partial gates
+- Partial quality gates detection test (Test 4)
   - Creates test image with SBOM containing some but not all required gates
   - SBOM includes safety, coverage, trivy but missing lint hash
   - Validates that CD strict mode would detect and reject partial compliance
   - Tests the new per-gate validation logic in CD workflow
-- Negative test for missing quality gate hashes in CI workflow
+- Negative test for missing quality gate hashes (Test 3)
   - Creates test image with plain SBOM (no quality gate annotations)
   - Verifies quality gate extraction correctly returns empty
   - Demonstrates strict enforcement mode would block deployment
@@ -22,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optional flag to fail deployment if quality gates missing from SBOM
   - Blocks deployment when quality gate hashes not found in SBOM annotations
   - Default: permissive (warning only) for backward compatibility
-- Attestation verification test job in CI workflow
+- Attestation verification tests (Tests 1-2)
   - Creates test image with intentionally missing SBOM attestation
   - Verifies Build Provenance check passes (attestation present)
   - Verifies SBOM check fails (attestation missing)
